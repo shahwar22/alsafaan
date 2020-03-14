@@ -261,8 +261,7 @@ class Fixtures(commands.Cog):
             async with sl_lock:
                 file = await self.bot.loop.run_in_executor(None, game.stats_image, self.driver)
             embed = game.base_embed
-            filename = f"Stats-{game.filename}.png"
-            await embed_utils.embed_image(ctx, embed, file, filename)
+            await embed_utils.embed_image(ctx, embed, file)
 
     @commands.command(usage="formation <team to search for>", aliases=["formations", "lineup", "lineups"])
     async def formation(self, ctx, *, qry: commands.clean_content):
@@ -276,8 +275,7 @@ class Fixtures(commands.Cog):
             async with sl_lock:
                 file = await self.bot.loop.run_in_executor(None, game.formation, self.driver)
             embed = game.base_embed
-            filename = f"Formation-{game.filename}.png"
-            await embed_utils.embed_image(ctx, embed, file, filename)
+            await embed_utils.embed_image(ctx, embed, file)
     
     @commands.command()
     async def summary(self, ctx, *, qry: commands.clean_content):
@@ -291,8 +289,7 @@ class Fixtures(commands.Cog):
             async with sl_lock:
                 file = await self.bot.loop.run_in_executor(None, game.summary, self.driver)
             embed = game.base_embed
-            filename = f"Summary-{game.filename}.png"
-            await embed_utils.embed_image(ctx, embed, file, filename)
+            await embed_utils.embed_image(ctx, embed, file)
 
     @commands.command(aliases=["suspensions"])
     async def injuries(self, ctx, *, qry: commands.clean_content = None):
@@ -415,6 +412,7 @@ class Fixtures(commands.Cog):
             return  # Timeout or abort.
     
         await ctx.send(embed=await stadiums[index].to_embed)
+
 
 def setup(bot):
     bot.add_cog(Fixtures(bot))
