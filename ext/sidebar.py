@@ -1,9 +1,6 @@
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.common.by import By
-from ext.utils.selenium_driver import spawn_driver
+from ext.utils import football
+from importlib import reload
 from discord.ext import commands, tasks
-from io import BytesIO
 from PIL import Image
 from lxml import html
 import datetime
@@ -12,50 +9,34 @@ import math
 import praw
 import re
 
+NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
 
-def build_sidebar(sb, table, fixtures, res, last_result, match_threads):
-    sb += table + fixtures + "* Previous Results\n"
-    
-    timestamp = f"\n#####Sidebar auto-updated {datetime.datetime.now().strftime('%a %d %b at %H:%M')}\n"
-    footer = timestamp + last_result + match_threads + "\n\n[](https://discord.gg/TuuJgrA)"
-    results_header = "\n W|Home|-|Away\n--:|--:|:--:|:--\n"
-    
-    # Get length, append more results to max length.
-    buffer = len(results_header) + 14  # 14 for "previous results"
-    accepted = []
-    count = 0
-    for i in res:
-        # Every 20 rows we buffer the length of  another header.
-        if count % 20 == 0:
-            buffer += len(results_header)
-        
+
+def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10220):
+    rows = []
+    for num, obj in enumerate(strings):
         # Every row we buffer the length of the new result.
-        if (len(sb + i + footer) + buffer) < 10220:
-            accepted.append(i)
-            buffer += len(i)
-            count += 1
+        max_length -= len(obj)
+        # Every 20 rows we buffer the length of  another header.
+        if num % 20 == 0:
+            max_length -= len(header)
+        if max_length < 0:
+            break
         else:
-            break  # If it's too long, we stop iterating.
+            rows.append(obj)
     
-    fixture_blocks = (len(accepted) // 20) + 1
-    per_block = math.ceil(len(accepted) / fixture_blocks)
+    if not rows:
+        return ""
     
-    chunks = []  # Evenly divide between number of blocks
-    for i in range(0, len(accepted), per_block):
-        chunks.append(accepted[i:i + per_block])
+    columns = (len(rows) // per) + 1
+    height = math.ceil(len(rows) / columns)
     
-    # Reverse due to how the CSS is handled.
-    chunks.reverse()
+    chunks = [''.join(rows[i:i + height]) for i in range(0, len(rows), height)]
     
-    for i in chunks:
-        sb += results_header
-        sb += "".join(i)
-        if len(i) < per_block:
-            sb += "||||.\n"  # End the sub-table.
+    if reverse:
+        chunks.reverse()
     
-    # Build end of sidebar.
-    sb += footer
-    return sb
+    return header + header.join(chunks)
 
 
 class Sidebar(commands.Cog):
@@ -65,7 +46,8 @@ class Sidebar(commands.Cog):
         self.driver = None
         self.bot.teams = None
         self.bot.sidebar = self.sidebar_loop.start()
-        
+        reload(football)
+    
     def cog_unload(self):
         self.sidebar_loop.cancel()
         if self.driver is not None:
@@ -77,86 +59,38 @@ class Sidebar(commands.Cog):
     
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
-        table = await self.table()
-        sb, fixtures, results, last_result, get_match_threads = await self.bot.loop.run_in_executor(None, self.get_data)
-        sb = build_sidebar(sb, table, fixtures, results, last_result, get_match_threads)
-        await self.bot.loop.run_in_executor(None, self.post_sidebar, sb)
+        markdown = await self.make_sidebar()
+        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown)
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
         await self.bot.wait_until_ready()
         connection = await self.bot.db.acquire()
-        print("Fetching teams...")
         self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
-        print("Fetched!")
 
-    @commands.command(invoke_without_command=True)
-    @commands.has_permissions(manage_messages=True)
-    async def sidebar(self, ctx, *, caption=None):
-        """ Force a sidebar update, or use sidebar manual """
-        async with ctx.typing():
-            # Check if message has an attachment, for the new sidebar image.
-            if caption is not None:
-                # The wiki on r/NUFC has two blocks of --- surrounding the "caption"
-                # We get the old caption, then replace it with the new one, then re-upload all of the data.
-                sb = await self.bot.loop.run_in_executor(None, self.get_old_sidebar)
-                caption = f"---\n\n> {caption}\n\n---"
-                sb = re.sub(r'---.*?---', caption, sb, flags=re.DOTALL)
-                await self.bot.loop.run_in_executor(None, self.post_wiki, sb)
-            
-            if ctx.message.attachments:
-                s = self.bot.reddit.subreddit("NUFC")
-                await ctx.message.attachments[0].save("sidebar.png")
-                s.stylesheet.upload('sidebar', "sidebar.png")
-                style = s.stylesheet().stylesheet
-                s.stylesheet.update(style, reason=f"{ctx.author.name} Updated sidebar image via discord.")
-            
-            # Scrape
-            sb, fixtures, results, last_result, match_threads = await self.bot.loop.run_in_executor(None, self.get_data)
-            table = await self.table()
-            sb = build_sidebar(sb, table, fixtures, results, last_result, match_threads)
-            # post
-            await self.bot.loop.run_in_executor(None, self.post_sidebar, sb)
+    async def edit_caption(self, new_caption, subreddit="NUFC"):
+        # The 'sidebar' wiki page has two blocks of --- surrounding the "caption"
+        # We get the old caption, then replace it with the new one, then re-upload the data.
+        old = await self.bot.loop.run_in_executor(None, self.get_header)
+        markdown = re.sub(r'---.*?---', f"---\n\n> {new_caption}\n\n---", old, flags=re.DOTALL)
+        await self.bot.loop.run_in_executor(None, self.bot.reddit.subreddit(subreddit).wiki['sidebar'].edit(markdown))
+    
+    def get_header(self, subreddit="NUFC"):
+        return self.bot.reddit.subreddit(subreddit).wiki['sidebar'].content_md
         
-            # Embed.
-            e = discord.Embed(color=0xff4500)
-            th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-            e.set_author(icon_url=th, name="Sidebar updater")
-            e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
-            e.timestamp = datetime.datetime.now()
-            await ctx.send(embed=e)
+    def post_sidebar(self, markdown, subreddit="NUFC"):
+        self.bot.reddit.subreddit(subreddit).mod.update(description=markdown)
     
-    def upload_image(self, image):
-        self.bot.reddit.subreddit("NUFC").stylesheet.upload('sidebar', image)
-    
-    def post_wiki(self, wikisidebar):
-        s = self.bot.reddit.subreddit("NUFC")
-        s.wiki['sidebar'].edit(wikisidebar, reason="Updated Sidebar Caption")
-    
-    def get_old_sidebar(self):
-        return self.bot.reddit.subreddit("NUFC").wiki['sidebar'].content_md
-    
-    def post_sidebar(self, sidebar):
-        self.bot.reddit.subreddit("NUFC").mod.update(description=sidebar)
-    
-    def get_data(self):
-        self.driver = spawn_driver() if not self.driver else self.driver
-        sb = self.get_old_sidebar()
-        fixtures = self.fixtures()
-        results, last_result, last_opponent = self.results()
-        match_threads = self.get_match_threads(last_opponent)
-        return sb, fixtures, results, last_result, match_threads
-    
-    def get_match_threads(self, last_opponent):
+    def get_match_threads(self, last_opponent, subreddit="NUFC"):
         last_opponent = last_opponent.split(" ")[0]
-        for i in self.bot.reddit.subreddit('NUFC').search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
+        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 pre = f"[Pre]({i.url.split('?ref=')[0]})"
                 break
         else:
             pre = "Pre"
-        for i in self.bot.reddit.subreddit('NUFC').search('flair:"Match thread"', sort="new", syntax="lucene"):
+        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Match thread"', sort="new", syntax="lucene"):
             if not i.title.startswith("Match"):
                 continue
             if last_opponent in i.title:
@@ -165,7 +99,7 @@ class Sidebar(commands.Cog):
         else:
             match = "Match"
         
-        for i in self.bot.reddit.subreddit('NUFC').search('flair:"Post-match thread"', sort="new", syntax="lucene"):
+        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Post-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 post = f"[Post]({i.url.split('?ref=')[0]})"
                 break
@@ -174,14 +108,14 @@ class Sidebar(commands.Cog):
         
         return f"\n\n### {pre} - {match} - {post}"
     
-    async def table(self):
+    async def table(self, qry):
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             if resp.status != 200:
                 return "Retry"
             tree = html.fromstring(await resp.text())
         
-        table_data = ("\n\n* Premier League Table"
-                      "\n\n Pos.|Team *click to visit subreddit*|P|W|D|L|GD|Pts"
+        table_data = ("\n\n* Table"
+                      "\n\n Pos.|Team|P|W|D|L|GD|Pts"
                       "\n--:|:--|:--:|:--:|:--:|:--:|:--:|:--:\n")
         for i in tree.xpath('.//table[contains(@class,"gs-o-table")]//tbody/tr')[:20]:
             p = i.xpath('.//td//text()')
@@ -202,178 +136,125 @@ class Sidebar(commands.Cog):
                 team = f"[{team['name']}]({team['subreddit']})"
             except IndexError:
                 print(team, "Not found in", [i['name'] for i in self.bot.teams])
-            played = p[3]
-            won = p[4]
-            drew = p[5]
-            lost = p[6]
-            goal_diff = p[9]
-            points = p[10]
+            played, won, drew, lost = p[3:7]
+            goal_diff, points = p[8:10]
             
-            if "Newcastle" in team:
+            if qry.lower() in team.lower():
                 table_data += f"{movement} {rank} | **{team}** | **{played}** | **{won}** | **{drew}** | **{lost}** | "\
                               f"**{goal_diff}** | **{points}**\n"
             else:
                 table_data += f"{movement} {rank} | {team} | {played} | {won} | {drew} | {lost} | " \
                               f"{goal_diff} | {points}\n"
         return table_data
-    
-    def fixtures(self):
-        self.driver.get("http://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/fixtures/")
-        xpath = './/div[@class="sportName soccer"]'
-        WebDriverWait(self.driver, 5).until(ec.visibility_of_element_located((By.XPATH, xpath)))
-        tree = html.fromstring(self.driver.page_source)
-        
-        fixblock = []
-        for i in tree.xpath(".//div[contains(@class,'sportName soccer')]/div"):
-            # Date
-            d = "".join(i.xpath('.//div[@class="event__time"]//text()'))
-            if not d:
-                continue
-            try:
-                d = datetime.datetime.strptime(d, "%d.%m. %H:%M")
-                d = d.replace(year=datetime.datetime.now().year)
-                
-                if d.month < datetime.datetime.now().month:
-                    d = d.replace(year=datetime.datetime.now().year + 1)
-                elif d.month == datetime.datetime.now().month:
-                    if d.day < datetime.datetime.now().day:
-                        d = d.replace(year=datetime.datetime.now().year + 1)
-                
-                d = datetime.datetime.strftime(d, "%a %d %b: %H:%M")
-            except ValueError:  # Fuck this cant be bothered to fix it.
-                d = "Tue 31 Feb: 15:00"
-            
-            matchid = "".join(i.xpath(".//@id")).split('_')[2]
-            lnk = f"http://www.flashscore.com/match/{matchid}/#h2h;overall"
-            
-            h, a = i.xpath('.//div[contains(@class,"event__participant")]/text()')
-            if '(' in h:
-                h = h.split('(')[0].strip()
-            if '(' in a:
-                a = a.split('(')[0].strip()
-            
-            ic = "[](#icon-home)" if "Newcastle" in h else "[](#icon-away)"
-            op = h if "Newcastle" in a else a
-            
-            try:
-                op = [i for i in self.bot.teams if i['name'] == op][0]
-                op = f"{op['icon']}{op['short_name']}"
-            except IndexError:
-                print(f"Sidebar - fixtures - No db entry for: {op}")
-            fixblock.append(f"[{d}]({lnk})|{ic}|{op}\n")
-        
-        fixmainhead = "\n* Upcoming fixtures"
-        fixhead = "\n\n Date & Time|at|Opponent\n:--:|:--:|:--:|:--|--:\n"
-        
-        numblocks = (len(fixblock) // 20) + 1
-        blocklen = math.ceil(len(fixblock) / numblocks)
-        try:
-            chunks = [fixblock[i:i + blocklen] for i in range(0, len(fixblock), blocklen)]
-        except ValueError:
-            return ""
-        chunks.reverse()
-        for i in chunks:
-            if len(i) < blocklen:
-                i.append("|||||")
-        chunks = ["".join(i) for i in chunks]
-        chunks = fixmainhead + fixhead + fixhead.join(chunks)
-        return chunks
-    
-    def results(self):
-        self.driver.get("http://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/results/")
-        xpath = './/div[@class="sportName soccer"]'
-        WebDriverWait(self.driver, 5).until(ec.visibility_of_element_located((By.XPATH, xpath)))
-        t = html.fromstring(self.driver.page_source)
-        
-        resultlist = []
-        last_result, last_opponent = "", ""
-        
-        results = t.xpath(".//div[contains(@class,'sportName soccer')]/div")
-        for i in results:
-            try:
-                match_id = "".join(i.xpath(".//@id")).split('_')[-1]
-            except IndexError:
-                continue  # Not a match
-            
-            if not match_id:
-                continue  # STILL not a match...
-            
-            # Hack together link.
-            lnk = f"http://www.flashscore.com/match/{match_id}/#match-summary"
-            
-            # Score
-            h, a = i.xpath('.//div[contains(@class,"event__scores")]/span/text()')
-            sc = f"[{h} - {a}]({lnk})"
-            
-            ht, at = i.xpath('.//div[contains(@class,"event__participant")]/text()')
-            if '(' in ht:
-                ht = ht.split('(')[0]
-            if '(' in at:
-                at = at.split('(')[0]
-            
-            ht, at = ht.strip(), at.strip()
-            
-            # Top of Sidebar Chunk
-            if not last_opponent:
-                # Fetch badge if required, for the top of the sidebar.
-                def get_badge(link, team):
-                    self.driver.get(link)
-                    frame = self.driver.find_element_by_class_name(f"tlogo-{team}")
-                    img = frame.find_element_by_xpath(".//img").get_attribute('src')
-                    self.bot.loop.create_task(self.fetch_badge(img))
-                
-                # last op is for the last game at the top.
-                last_opponent = at if "Newcastle" in ht else ht
-                
-                try:
-                    away = [i for i in self.bot.teams if i['name'] == at][0]
-                    last_away = f"[{away['short_name']}]({away['subreddit']})"
-                except IndexError:
-                    get_badge(lnk, "away")
-                    last_away = f"[{at}](#temp/)"
-                    
-                try:
-                    home = [i for i in self.bot.teams if i['name'] == ht][0]
-                    last_home = f"[{home['short_name']}]({home['subreddit']})"
-                except IndexError:
-                    get_badge(lnk, "home")
-                    last_home = f"[{ht}](#temp/)"
-                    
-                last_result = f"> {last_home.replace(' (Eng)', '')} {sc} {last_away.replace(' (Eng)', '')}"
 
+    async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
+        # Fetch all data
+        top = await self.bot.loop.run_in_executor(None, self.get_header)
+        fsr = await football.Team.by_id(qry=qry, team_id=team_id)
+        fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
+        results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/results")
+        table = await self.table(qry)
+
+        # Get match threads
+        match_threads = await self.bot.loop.run_in_executor(None, self.get_match_threads, subreddit, qry)
+        
+        # Insert team badges
+        for x in fixtures + results:
             try:
-                home = [i for i in self.bot.teams if i['name'] == ht][0]
-                home = f"{home['icon']}{home['short_name']})"
+                r = [i for i in self.bot.teams if i['name'] == x.home][0]
+                x.home_icon =r['icon']
+                x.home_subreddit = r['subreddit']
+                x.short_home = r['short_name']
             except IndexError:
-                home = ht
-                
+                x.home_icon = ""
+                x.home_subreddit = "#temp"
+                x.short_home = x.home
             try:
-                away = [i for i in self.bot.teams if i['name'] == at][0]
-                away = f"{away['icon']}{away['short_name']})"
+                r = [i for i in self.bot.teams if i['name'] == x.away][0]
+                x.away_icon =r['icon']
+                x.away_subreddit = r['subreddit']
+                x.short_away = r['short_name']
             except IndexError:
-                away = at
+                x.away_icon = ""
+                x.away_subreddit = "#temp/"
+                x.short_away = x.away
+        
+        # Build data with passed icons.
+        last_match = results[0]
+        
+        # CHeck if we need to upload a temporary badge.
+        if not last_match.home_icon:
+            badge = await self.bot.loop.run_in_executor(None, last_match.get_badge, self.bot.fixture_driver, "home")
+            await self.bot.loop.run_in_executor(None, self.upload_badge, badge)
+        elif not last_match.away_icon:
+            badge = await self.bot.loop.run_in_executor(None, last_match.get_badge, self.bot.fixture_driver, "away")
+            await self.bot.loop.run_in_executor(None, self.upload_badge, badge)
             
-            icon = "[D](#icon-draw)"
-            icon = "[W](#icon-win)" if ("Newcastle" in home and h > a) or ("Newcastle" in away and a > h) else icon
-            icon = "[W](#icon-loss)" if ("Newcastle" in away and h > a) or ("Newcastle" in home and a > h) else icon
-            resultlist.append(f"{icon}|{home}|{sc}|{away}\n")
+        top_bar = last_match.top_bar
+        if fixtures:
+            header = "\n* Upcoming fixtures"
+            th = "\n\n Date & Time | Match\n--:|:--\n"
+            fx_markdown = header + rows_to_md_table(th, [i.sidebar_markdown for i in fixtures])  # Show all fixtures.
+        else:
+            fx_markdown = ""
+        
+        # After fetching everything, begin construction.
+        timestamp = f"\n#####Sidebar updated {datetime.datetime.now().ctime()}\n"
+        footer = timestamp + top_bar + match_threads
+        
+        if subreddit == "NUFC":
+            footer += NUFC_DISCORD_LINK
+        
+        markdown = top + table + fx_markdown
+        if results:
+            header = "* Previous Results\n"
+            markdown += header
+            th = "\n Date | Result\n--:|:--\n"
+            rx_markdown = rows_to_md_table(th, [i.sidebar_markdown for i in results], max_length=len(markdown + footer))
+            markdown += rx_markdown
             
-        return resultlist, last_result, last_opponent
-    
-    async def fetch_badge(self, src):
-        async with self.bot.session.get(src) as resp:
-            if resp.status != 200:
-                print("Error {resp.status} downloading image.")
-            image = await resp.content.read()
-        await self.bot.loop.run_in_executor(None, self.upload_badge, image)
+        markdown += footer
+        return markdown
     
     def upload_badge(self, image):
-        im = Image.open(BytesIO(image))
-        im.save("temporary_badge", "PNG")
+        im = Image.open(image)
+        im.save("temporary_badge.png", "PNG")
         s = self.bot.reddit.subreddit("NUFC")
-        s.stylesheet.upload('temp', "temporary_badge")
-        style = s.stylesheet().stylesheet
-        s.stylesheet.update(style, reason="Update temporary badge image")
+        s.stylesheet.upload('temp', "temporary_badge.png")
+        s.stylesheet.update(s.stylesheet().stylesheet, reason="Update temporary badge image")
+
+    @commands.command(invoke_without_command=True)
+    @commands.has_permissions(manage_messages=True)
+    async def sidebar(self, ctx, *, caption=None):
+        """ Force a sidebar update, or use sidebar manual """
+        if caption == "manual":  # Obsolete method.
+            caption = ""
+    
+        async with ctx.typing():
+            # Check if message has an attachment, for the new sidebar image.
+            if caption is not None:
+                await self.bot.loop.run_in_executor(None, self.edit_caption, caption)
+        
+            if ctx.message.attachments:
+                s = self.bot.reddit.subreddit("NUFC")
+                await ctx.message.attachments[0].save("sidebar.png")
+                await self.bot.loop.run_in_executor(s.stylesheet.upload('sidebar', "sidebar.png"))
+                style = s.stylesheet().stylesheet
+                s.stylesheet.update(style, reason=f"{ctx.author.name} Updated sidebar image via discord.")
+        
+            # Build
+            markdown = await self.make_sidebar()
+
+            # Post
+            await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, 'NUFC')
+            
+            # Embed.
+            e = discord.Embed(color=0xff4500)
+            th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
+            e.set_author(icon_url=th, name="Sidebar updater")
+            e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
+            e.timestamp = datetime.datetime.now()
+            await ctx.send(embed=e)
 
 
 def setup(bot):
