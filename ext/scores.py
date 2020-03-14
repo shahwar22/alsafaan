@@ -164,6 +164,7 @@ class Scores(commands.Cog):
                 # Clear attributes
                 home_attrs = None
                 away_attrs = None
+                state = ""
         
             elif i.tag == "h4":
                 country, league = i.text.split(': ')
@@ -171,12 +172,17 @@ class Scores(commands.Cog):
             elif i.tag == "span":
                 # Sub-span containing postponed data.
                 time = i.find('span').text if i.find('span') is not None else i.text
+                try:
+                    state = i.find('span').attrib['class']
+                except AttributeError:
+                    pass
 
             elif i.tag == "a":
                 url = i.attrib['href']
                 url = "http://www.flashscore.com" + url
                 home_goals, away_goals = i.text.split(':')
-                state = i.attrib['class']
+                if not state:
+                    state = i.attrib['class']
                 if away_goals.endswith('aet'):
                     away_goals = away_goals.strip('aet')
                     time = "AET"
@@ -185,18 +191,22 @@ class Scores(commands.Cog):
                     time = "After Pens"
                     
             elif i.tag == "img":
-                if len(capture_group) == 1:
+                if "-" not in capture_group:
                     if i.attrib['class'] == "rcard-1":
-                        home_attrs = "🟥"
+                        home_attrs = "`🟥`"
                     elif i.attrib['class'] == "rcard-2":
-                        home_attrs = "🟥🟥"
+                        home_attrs = "`🟥🟥`"
+                    elif i.attrib['class'] == "rcard-3":
+                        home_attrs = "`🟥🟥🟥`"
                     else:
                         print("Unhandled class", i.attrib['class'])
-                elif len(capture_group) == 1:
+                else:
                     if i.attrib['class'] == "rcard-1":
                         away_attrs = "🟥"
                     elif i.attrib['class'] == "rcard-2":
                         away_attrs = "🟥🟥"
+                    elif i.attrib['class'] == "rcard-3":
+                        away_attrs = "`🟥🟥🟥`"
                     else:
                         print("Unhandled class", i.attrib['class'])
             else:
