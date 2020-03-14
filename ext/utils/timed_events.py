@@ -37,13 +37,9 @@ async def spool_reminder(bot, record):
 	e.colour = 0x00ff00
 	
 	e.title = "⏰ Reminder"
-	try:
-		e.url = msg.jump_url
-	except AttributeError:
-		pass
 	
 	if record['reminder_content'] is not None:
-		e.description = record['reminder_content']
+		e.description = "> " + record['reminder_content']
 	
 	if record['mod_action'] is not None:
 		if record['mod_action'] == "unban":
@@ -51,7 +47,7 @@ async def spool_reminder(bot, record):
 				await bot.http.unban(record["mod_target"], channel.guild)
 				e.description = f'\n\nUser id {record["mod_target"]} was unbanned'
 			except discord.NotFound:
-				e.description = f"\n\nFailed to unban user id {record['mod_target']} - are they already unbanned?"
+				e.description = f"  \n\nFailed to unban user id {record['mod_target']} - are they already unbanned?"
 				e.colour = 0xFF0000
 			else:
 				e.title = "Member unbanned"
@@ -71,6 +67,11 @@ async def spool_reminder(bot, record):
 			await channel.set_permissions(target, overwrite=None)
 			e.title = "Member un-blocked"
 			e.description = f"Unblocked {target.mention} from {channel.mention}"
+	
+	try:
+		e.description += f"\n[Jump to reminder]({msg.jump_url})"
+	except AttributeError:
+		pass
 	
 	if record['mod_action']:
 		await channel.send(embed=e)
