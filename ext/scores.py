@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands, tasks
 
 # Web Scraping
-from lxml import html, etree
+from lxml import html
 
 # Data manipulation
 import datetime
@@ -15,6 +15,14 @@ import datetime
 from importlib import reload
 from ext.utils import football, embed_utils
 from ext.utils.embed_utils import paginate
+
+# Constants.
+NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
+                 "\n\nYou can add more leagues with `.tb ls add league_name`" \
+                 "\nYou can reset your leagues with `.tb ls reset" \
+                 "  \nTo find out which leagues currently have games, use `.tb scores`"
+NO_CLEAR_CHANNEL_PERM = "Unable to clean previous messages, please make sure I have manage_messages permissions."
+NO_MANAGE_CHANNELS = "Unable to create live-scores channel. Please make sure I have the manage_channels permission."
 
 default_leagues = [
     "WORLD: Friendly international",
@@ -65,7 +73,7 @@ class Scores(commands.Cog):
         # Data
         self.bot.games = {}
         self.msg_dict = {}
-        self.cache = defaultdict(list)
+        self.cache = defaultdict(set)
         self.bot.loop.create_task(self.update_cache())
         
         # Core loop.
@@ -92,32 +100,89 @@ class Scores(commands.Cog):
         for r in channels:
             if self.bot.get_channel(r['channel_id']) is None:
                 continue
-            self.cache[(r["guild_id"], r["channel_id"])].append(r["league"])
+            self.cache[(r["guild_id"], r["channel_id"])].update(r["league"])
     
     # Core Loop
     @tasks.loop(minutes=1)
     async def score_loop(self):
         """ Score Checker Loop """
         games = await self.fetch_games()
-            
         # If we have an item with new data, force a full cache clear. This is expected behaviour at midnight.
-        if self.bot.games:
-            for x in games:
-                if x.url not in [i.url for i in self.bot.games]:
-                    self.bot.games = []
-                    break  # We can stop iterating.
-        
+        if not {i.url for i in self.bot.games} & {x.url for x in games}:
+            self.bot.games = []
+            
         # If we only have a partial match returned, for whatever reason
         self.bot.games = [i for i in self.bot.games if i.url not in [x.url for x in games]] + [x for x in games]
-
-        # Iterate: Check vs each server's individual config settings
-        await self.build_messages()
         
-        try:
-            # Send message to server.
-            await self.spool_messages()
-        except discord.ConnectionClosed:
-            pass
+        # Key games by league for intersections.
+        game_dict = defaultdict(set)
+        for i in self.bot.games:
+            game_dict[i.full_league].update(i.live_score_text)
+        
+        # Iterate: Check vs each server's individual config settings
+        for (guild_id, channel_id), whitelist in self.cache.items():
+            
+            # Does league exist in both whitelist and found games.
+            channel_leagues_required = game_dict.keys() & whitelist
+            
+            chunks = []
+            this_chunk = datetime.datetime.now().strftime("Live Scores for **%a %d %b %Y** (Local Time **%H:%M**)\n")
+            if channel_leagues_required:
+                # Build messages.
+                for league in channel_leagues_required:
+                    # Chunk-ify to max message length
+                    hdr = f"\n**{league}**"
+                    if len(this_chunk + hdr) > 1999:
+                        chunks += [this_chunk]
+                        this_chunk = ""
+                    this_chunk += hdr + "\n"
+                    
+                    for game in game_dict[league]:
+                        if len(this_chunk + game) > 1999:
+                            chunks += [this_chunk]
+                            this_chunk = ""
+                        this_chunk += game + "\n"
+            else:
+                this_chunk += NO_GAMES_FOUND
+                
+            # Dump final_chunk.
+            chunks += [this_chunk]
+            
+            # Check if we have some previous messages for this channel
+            if channel_id not in self.msg_dict:
+                self.msg_dict[channel_id] = {}
+
+            # Expected behaviour: Edit pre-existing message with new data.
+            if len(self.msg_dict[channel_id]) == len(chunks):
+                for message, chunk in list(zip(self.msg_dict[channel_id], chunks)):
+                    # Save API calls by only editing when a change occurs.
+                    if message.content != chunk:
+                        await message.edit(content=chunk)
+            
+            # Otherwise we build a new message list.
+            else:
+                channel = self.bot.get_channel(channel_id)
+                try:
+                    self.msg_dict[channel_id] = []
+                    await channel.purge()
+                except discord.Forbidden:
+                    await channel.send(NO_CLEAR_CHANNEL_PERM)
+                except AttributeError:  # Channel not found.
+                    continue
+                    
+                for x in chunks:
+                    # Append message ID to our list
+                    try:
+                        message = await channel.send(x)
+                    except (discord.Forbidden, discord.NotFound):
+                        continue  # These are user-problems, not mine.
+                    except Exception as e:
+                        # These however need to be logged.
+                        print("-- error sending message to scores channel --")
+                        print(channel.id)
+                        print(e)
+                    else:
+                        self.msg_dict[channel_id].append(message)
 
     @score_loop.before_loop
     async def before_score_loop(self):
@@ -143,11 +208,14 @@ class Scores(commands.Cog):
         capture_group = []
         games = []
         for i in elements:
-            if isinstance(i, etree._ElementUnicodeResult):
+            try:
+                tag = i.tag
+            except AttributeError:
+                # Not an element. / lxml.etree._ElementUnicodeResult
                 capture_group.append(i)
                 continue
         
-            if i.tag == "br":
+            if tag == "br":
                 # End of match row.
                 try:
                     home, away = "".join(capture_group).split('-', 1)  # Olympia HK can suck my fucking cock
@@ -166,10 +234,10 @@ class Scores(commands.Cog):
                 away_attrs = None
                 state = ""
         
-            elif i.tag == "h4":
+            elif tag == "h4":
                 country, league = i.text.split(': ')
                 league = league.split(' - ')[0]
-            elif i.tag == "span":
+            elif tag == "span":
                 # Sub-span containing postponed data.
                 time = i.find('span').text if i.find('span') is not None else i.text
                 try:
@@ -177,7 +245,7 @@ class Scores(commands.Cog):
                 except AttributeError:
                     pass
 
-            elif i.tag == "a":
+            elif tag == "a":
                 url = i.attrib['href']
                 url = "http://www.flashscore.com" + url
                 home_goals, away_goals = i.text.split(':')
@@ -190,109 +258,19 @@ class Scores(commands.Cog):
                     away_goals = away_goals.strip('pen')
                     time = "After Pens"
                     
-            elif i.tag == "img":
-                if "-" not in capture_group:
-                    if i.attrib['class'] == "rcard-1":
-                        home_attrs = "`🟥`"
-                    elif i.attrib['class'] == "rcard-2":
-                        home_attrs = "`🟥🟥`"
-                    elif i.attrib['class'] == "rcard-3":
-                        home_attrs = "`🟥🟥🟥`"
+            elif tag == "img":
+                if "rcard" in i.attrib['class']:
+                    cards = "`" + "🟥" * int("".join([i for i in i.attrib['class'] if i.isdigit()])) + "`"
+                    if "-" not in capture_group:
+                        home_attrs = cards
                     else:
-                        print("Unhandled class", i.attrib['class'])
+                        away_attrs = cards
                 else:
-                    if i.attrib['class'] == "rcard-1":
-                        away_attrs = "🟥"
-                    elif i.attrib['class'] == "rcard-2":
-                        away_attrs = "🟥🟥"
-                    elif i.attrib['class'] == "rcard-3":
-                        away_attrs = "`🟥🟥🟥`"
-                    else:
-                        print("Unhandled class", i.attrib['class'])
+                    print("Live scores loop / Unhandled class for ", i.home, "vs", i.away, i.attrib['class'])
             else:
-                print(f"Unhandled tag: {i.tag}")
+                print(f"Live scores loop / Unhandled tag: {i.tag}")
         return games
     
-    async def build_messages(self):
-        # Group by country/league
-        game_dict = defaultdict(list)
-        for i in self.bot.games:
-            game_dict[i.full_league].append(i.live_score_text)
-            
-        for (guild_id, channel_id), whitelist in self.cache.items():
-            if channel_id not in self.msg_dict:
-                self.msg_dict[channel_id] = {}
-                self.msg_dict[channel_id]["msgs"] = []
-            
-            self.msg_dict[channel_id]["strings"] = []
-            
-            t = datetime.datetime.now().strftime("Live Scores for **%a %d %b %Y** (Local Time **%H:%M**)\n")
-            output = t
-            
-            for cl in whitelist:
-                games = game_dict[cl]
-                if not games:
-                    continue
-                    
-                header = f"\n**{cl}**"
-                if len(output + header) > 1999:
-                    self.msg_dict[channel_id]["strings"] += [output]
-                    output = ""
-                
-                output += header + "\n"
-                    
-                for i in games:
-                    if len(output + i) > 1999:
-                        self.msg_dict[channel_id]["strings"] += [output]
-                        output = ""
-                    output += i + "\n"
-            
-            if output == t:
-                output += "No games found for your tracked leagues today!" \
-                          "\n\nYou can add more leagues with `.tb ls add league_name`, or reset to the default leagues"\
-                          "with `.tb ls default`.\nTo find out which leagues currently have games, use `.tb scores`"
-            self.msg_dict[channel_id]["strings"] += [output]
-    
-    async def spool_messages(self):
-        for channel_id in self.msg_dict:
-            # Create messages  if a different number of messages is required (or none exist).
-            if len(self.msg_dict[channel_id]["msgs"]) != len(self.msg_dict[channel_id]["strings"]):
-                channel = self.bot.get_channel(channel_id)
-                try:
-                    self.msg_dict[channel_id]["msgs"] = []
-                    await channel.purge()
-                except discord.Forbidden:
-                    await channel.send(
-                        "Unable to clean previous messages, please make sure I have manage_messages permissions.")
-                except AttributeError:
-                    continue
-                for d in self.msg_dict[channel_id]["strings"]:
-                    # Append message ID to our list
-                    try:
-                        m = await channel.send(d)
-                        self.msg_dict[channel_id]["msgs"].append(m)
-                    except discord.Forbidden:
-                        continue  # This is your problem, not mine.
-                    except discord.NotFound:
-                        # This one, on the other hand, I probably fucked up.
-                        print(f"Couldn't find livescores channel {channel_id}")
-                    except Exception as e:
-                        print("-- error sending message to scores channel --")
-                        print(channel.id)
-                        print(e)
-            else:
-                # Edit message pairs if pre-existing.
-                tuples = list(zip(self.msg_dict[channel_id]["msgs"], self.msg_dict[channel_id]["strings"]))
-                for x, y in tuples:
-                    try:
-                        # Save API calls by only editing when a change occurs.
-                        if x is not None:
-                            if x.content != y:
-                                await x.edit(content=y)
-                    # Discard invalid messages, these will be re-populated next loop.
-                    except (discord.NotFound, discord.Forbidden):
-                        pass
-
     # Delete from Db on delete..
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
@@ -361,8 +339,8 @@ class Scores(commands.Cog):
                 e.description += "```css\n[WARNING]: I do not have send_messages permissions in that channel!"
             leagues = self.cache[(ctx.guild.id, i.id)]
             if leagues != [None]:
-                leagues.sort()
-                leagues = "```yaml\n" + "\n".join(leagues) + "```"
+                
+                leagues = "```yaml\n" + "\n".join(sorted(leagues)) + "```"
                 e.add_field(name="This channel's Tracked Leagues", value=leagues)
             embeds.append(deepcopy(e))
             e.clear_fields()
@@ -382,8 +360,7 @@ class Scores(commands.Cog):
                 name = "live-scores"
             ch = await ctx.guild.create_text_channel(name=name, overwrites=ow, reason=reason)
         except discord.Forbidden:
-            return await ctx.send(
-                "Unable to create live-scores channel. Please make sure I have the manage_channels permission.")
+            return await ctx.send(NO_MANAGE_CHANNELS)
         except discord.HTTPException:
             return await ctx.send(
                 "An unknown error occurred trying to create the live-scores channel, please try again later.")
@@ -427,16 +404,7 @@ class Scores(commands.Cog):
                     replies.append(f'🚫 {c.mention} is not set as a scores channel.')
                     continue
                 leagues = self.cache[(ctx.guild.id, c.id)]
- 
-                if leagues != [None]:
-                    if res in leagues:
-                        replies.append(f"⚠️**{res}** was already in {c.mention}'s tracked leagues.")
-                        continue
-                    else:
-                        leagues.append(res)
-                else:
-                    leagues = [res]
-                
+                leagues.update(res)
                 for league in leagues:
                     await connection.execute("""
                         INSERT INTO scores_leagues (league,channel_id)
@@ -501,7 +469,7 @@ class Scores(commands.Cog):
                 await connection.execute("""DELETE FROM scores_leagues WHERE channel_id = $1""", channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send(f"✅ {c.mention} no longer tracks any leagues. Use `ls reset` or `ls add` to "
+        await ctx.send(f"✅ {channel.mention} no longer tracks any leagues. Use `ls reset` or `ls add` to "
                        f"re-popultate it with new leagues or the default leagues.")
     
     @ls.command(usage="ls reset <#channel>")

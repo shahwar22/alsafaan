@@ -380,7 +380,6 @@ class Competition(FlashScoreSearchResult):
         return players
 
 
-# TODO: Double Inheritance via DB lookup?
 class Team(FlashScoreSearchResult):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

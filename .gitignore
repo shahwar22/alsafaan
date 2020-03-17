@@ -12,6 +12,5 @@
 *.ttf
 Run.bat
 *.pyc
-ext/test.py
-temporary_badge
-ext/mtb-old.py
+/ext/mtb-old.py
+/ext/test.py
