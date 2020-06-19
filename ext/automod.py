@@ -8,6 +8,7 @@ import typing
 
 
 class AutoMod(commands.Cog):
+    """ Set up automated moderation tools """
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.update_cache())

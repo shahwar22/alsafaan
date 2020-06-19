@@ -1,4 +1,6 @@
 from collections import defaultdict
+
+import typing
 from discord.ext import commands, tasks
 from ext.utils import transfer_tools
 from lxml import html
@@ -21,7 +23,7 @@ class TransferTicker(commands.Cog):
         self.bot = bot
         self.parsed = []
         self.bot.transfer_ticker = self.transfer_ticker.start()
-        self.whitelist_cache = defaultdict(dict)
+        self.whitelist_cache = defaultdict(list)
         self.channel_cache = defaultdict(dict)
 
     def cog_unload(self):
@@ -45,8 +47,9 @@ class TransferTicker(commands.Cog):
             this_item = {r["channel_id"]: {"short_mode": r["short_mode"]}}
             self.channel_cache[r["guild_id"]].update(this_item)
         for r in whitelists:
-            this_item = {{"type": r["type"]}, {"item": r["item"]}, {"alias": r["alias"]}}
-            self.whitelist_cache[r["channel_id"]].update(this_item)
+            this_item = {"item": r["item"], "details": {"type": r["type"], "alias": r["alias"]}}
+            print(this_item)
+            self.whitelist_cache[r["channel_id"]].append(this_item)
 
     @tasks.loop(minutes=1)
     async def transfer_ticker(self):
@@ -167,9 +170,12 @@ class TransferTicker(commands.Cog):
         await self.bot.wait_until_ready()
         await self.update_cache()
 
-    async def _pick_channels(self, ctx, channels):
+    async def _pick_channels(self, ctx, channels: typing.List[discord.TextChannel]):
         # Assure guild has transfer channel.
         guild_cache = self.channel_cache[ctx.guild.id]
+        
+        if isinstance(channels, discord.TextChannel):
+            channels = [channels]
         
         if not guild_cache:
             await ctx.send(f'{ctx.guild.name} does not have any transfers channels set.')
@@ -181,10 +187,12 @@ class TransferTicker(commands.Cog):
 
             # If no Query provided we check current whitelists.
             if not channels:
-                channels = [self.bot.get_channel(i) for i in list(guild_cache)]
-            if ctx.channel.id in guild_cache:
-                channels = [ctx.channel]
-            elif len(channels) != 1:
+                if ctx.channel.id in guild_cache:
+                    channels = [ctx.channel]
+                else:
+                    channels = [self.bot.get_channel(i) for i in list(guild_cache)]
+
+            if len(channels) != 1:
                 async with ctx.typing():
                     mention_list = " ".join([i.mention for i in channels])
                     m = await ctx.send(
@@ -193,7 +201,7 @@ class TransferTicker(commands.Cog):
 
                     try:
                         channels = await self.bot.wait_for("message", check=check, timeout=30)
-                        channels = channels.channel_mentions
+                        channels = channels.channel_mentions[0]
                         await m.delete()
                     except asyncio.TimeoutError:
                         await m.edit(
@@ -210,7 +218,7 @@ class TransferTicker(commands.Cog):
         channels = await self._pick_channels(ctx, channels)
         guild_cache = self.channel_cache[ctx.guild.id]
         if not guild_cache:
-            return await ctx.send(f"Your server does not have any transfer ticket channels set. Use `{ctx.command}tf "
+            return await ctx.send(f"Your server does not have any transfer ticket channels set. Use `{ctx.prefix}tf "
                                   f"set #channel` to create one.")
 
         replies = []
@@ -224,7 +232,9 @@ class TransferTicker(commands.Cog):
             whitelist = self.whitelist_cache[i.id]
             if whitelist:
                 wl = []
+                print(whitelist)
                 for x in whitelist:
+                    print(x)
                     wl.append(f"{whitelist[x]['alias']} ({whitelist[x]['type']})")
                 wl = ", ".join(wl)
                 replies.append(
@@ -286,38 +296,41 @@ class TransferTicker(commands.Cog):
                 continue
 
             wl = []
-            for i_type in whitelist:
-                for item in i_type:
-                    wl.append(f"{whitelist[item]['alias']} ({whitelist[item]['item']})")
-            wl = ", ".join(wl)
+            for item in whitelist:
+                wl.append(f"{item['details']['alias']} ({item['item']})")
+            wl = "```" + "\n".join(wl) + "```"
             replies.append(f'The whitelist for {i.mention} is: `{wl}`')
         await ctx.send("\n".join(replies))
 
     @commands.has_permissions(manage_channels=True)
     @whitelist.command(name="add",
-                       usage="tf whitelist add <Optional: #Channel1, #Channel2, #Channel3> <Optional: 'team', "
-                             "defaults to league if not specified)> <Search query>")
+                       usage="tf whitelist add <Optional: #Channel1, #Channel2, #Channel3> <'team' or 'league'> "
+                             "<Search query>")
     async def _add(self, ctx, channels: commands.Greedy[discord.TextChannel], mode, *, qry: commands.clean_content):
-        """ Add a league (or override it to team) to your transfer ticker channel(s)"""
+        """ Add a league or team to your transfer ticker channel(s)"""
         channels = await self._pick_channels(ctx, channels)
 
         if not channels:
             return
 
         if mode.lower() == "team":
-            targets, links = await transfer_tools.search(self, ctx, qry, "clubs", whitelist_fetch=True)
+            targets, links = await transfer_tools.search(ctx, qry, "clubs", whitelist_fetch=True)
         elif mode.lower() == "league":
-            targets, links = await transfer_tools.search(self, ctx, qry, "domestic competitions", whitelist_fetch=True)
+            targets, links = await transfer_tools.search(ctx, qry, "domestic competitions", whitelist_fetch=True)
         else:
             return await ctx.send("Invalid mode specified. Mode must be either 'team' or 'league'")
-        e = discord.Embed()
+        e = discord.Embed(description="")
+        e.title = "Please type matching ID#"
         values = {}
         count = 1
-        for i, j in targets, links:
-            this_value = {str(count): {{"alias": targets}, {"link": j}}}
+        for (i, j) in zip(targets, links):
+            print("i", i)
+            print("j", j)
+            link = "http://www.transfermarkt.com" + j
+            print("link", link)
+            this_value = {str(count): {"alias": i, "link": link}}
             values.update(this_value)
-            e.description += f"{count} {i}\n"
-            e.description += f"{count} {i}\n"
+            e.description += f"[{count}] [{i}]({link})\n"
             count += 1
 
         m = await ctx.send(embed=e)
@@ -328,27 +341,25 @@ class TransferTicker(commands.Cog):
 
         try:
             message = await self.bot.wait_for("message", check=check, timeout=30)
-            channels = message.channel_mentions
         except asyncio.TimeoutError:
-            await ctx.send("⚠ Channel selection timed out, your whitelisted items were not updated.")
+            await ctx.send("⚠ Item selection timed out, your whitelisted items were not updated.")
             return await m.delete()
 
         match = message.content
-        result = values[match]
+        result = values[match]['link']
+        alias = values[match]['alias']
 
         connection = await self.bot.db.acquire()
         replies = []
         for c in channels:
             whitelist = self.whitelist_cache[c.id]
-            if not whitelist:
-                replies.append(f"🚫 {c.mention} is not set as a transfers ticker channel.")
-                continue
+            print(result, whitelist)
             if result in whitelist:
-                replies.append(f"🚫 {c.mention} whitelist already contains {result}.")
+                replies.append(f"🚫 {c.mention} whitelist already contains <{result}>.")
                 continue
 
-            await connection.execute("""INSERT INTO transfers_whitelist (channel_id,item,type) VALUES ($1,$2,$3)""",
-                                     c.id, result, mode)
+            await connection.execute("""INSERT INTO transfers_whitelists (channel_id, item, type, alias)
+                                    VALUES ($1, $2, $3, $4)""",  c.id, result, mode, alias)
             replies.append(f"✅ Whitelist for {c.mention} updated, current whitelist: ```{whitelist}```")
 
         replies = "\n".join(replies)
@@ -379,10 +390,12 @@ class TransferTicker(commands.Cog):
         guild_cache = self.channel_cache[ctx.guild.id]
 
         combined_whitelist = []
-
+        
+        if isinstance(channels, discord.TextChannel):
+            channels = [channels]
+        
         for i in channels:
-            combined_whitelist += [y["alias"] for y in self.whitelist_cache[i] if
-                                   y["alias"] not in combined_whitelist]
+            combined_whitelist += [y["alias"] for y in self.whitelist_cache[i] if y["alias"] not in combined_whitelist]
         e = discord.Embed()
         count = 0
         id_whitelist = {}
@@ -393,16 +406,17 @@ class TransferTicker(commands.Cog):
         e.title = "Please type matching ID#"
 
         def check(msg):
-            return ctx.author.id == message.author.id and msg.content in id_whitelist
+            return ctx.author.id == msg.author.id and msg.content in id_whitelist
 
         m = await ctx.send(embed=e)
         try:
-            message = await self.bot.wait_for("message", check=check, timeout=30).content
+            message = await self.bot.wait_for("message", check=check, timeout=30)
+            target = message.content
         except asyncio.TimeoutError:
             await m.delete()
             return await ctx.send("Timed out waiting for response. No whitelist items were deleted.")
 
-        alias = id_whitelist[message.content]["alias"]
+        alias = id_whitelist[target]["alias"]
 
         replies = []
         connection = await self.bot.db.acquire()

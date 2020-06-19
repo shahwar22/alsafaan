@@ -13,7 +13,7 @@ import html as htmlc
 
 
 class Twitter(commands.Cog):
-    """ Twitter stream commands """
+    """ Track twitter accounts """
     
     def __init__(self, bot):
         self.bot = bot

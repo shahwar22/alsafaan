@@ -24,7 +24,7 @@ class Notifications(commands.Cog):
         async with connection.transaction():
             self.records = await connection.fetch("""SELECT * FROM guild_settings""")
         await self.bot.db.release(connection)
-    
+        
     # Master info command.
     @commands.has_permissions(manage_guild=True)
     @commands.group(invoke_without_command=True, usage="mod")
@@ -57,6 +57,9 @@ class Notifications(commands.Cog):
             else:
                 return await ctx.send(f'Join information is currently being output to {ch.mention}')
         
+        if not ctx.me.permissions_in(channel).send_messages:
+            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+        
         connection = await self.bot.db.acquire()
         await connection.execute(""" UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
                                  ctx.guild.id, channel.id)
@@ -86,6 +89,9 @@ class Notifications(commands.Cog):
                 return await ctx.send(f'Member leaves are not currently being output.')
             else:
                 return await ctx.send(f'Member leave information is currently being output to {ch.mention}')
+        
+        if not ctx.me.permissions_in(channel).send_messages:
+            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -119,6 +125,9 @@ class Notifications(commands.Cog):
             else:
                 return await ctx.send(f'Mute notifications are currently being output to {ch.mention}')
         
+        if not ctx.me.permissions_in(channel).send_messages:
+            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+        
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute(""" UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
@@ -148,6 +157,9 @@ class Notifications(commands.Cog):
                 return await ctx.send(f'Emoji change notifications are not currently being output.')
             else:
                 return await ctx.send(f'Emoji change notifications are currently being output to {ch.mention}')
+        
+        if not ctx.me.permissions_in(channel).send_messages:
+            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -196,8 +208,12 @@ class Notifications(commands.Cog):
             content = f"🙊 {before.mention} was muted"
         else:
             return
-
-        mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == before.guild.id][0]
+        
+        try:
+            mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == before.guild.id][0]
+        except IndexError:
+            return  # Notification channel note set.
+        
         ch = self.bot.get_channel(mutes)
         
         if ch is None:
@@ -232,7 +248,11 @@ class Notifications(commands.Cog):
         
         e.add_field(name="Account Created", value=coloured_time)
         e.set_thumbnail(url=new_member.avatar_url)
-        await ch.send(embed=e)
+        
+        try:
+            await ch.send(embed=e)
+        except discord.Forbidden:  # If you wanna fuck up your settings it's not my fault.
+            pass
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
@@ -259,7 +279,7 @@ class Notifications(commands.Cog):
         try:
             ch = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
             await ch.send(f"⬅ {member.mention} left the server.")
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError, IndexError):
             pass
         
     @commands.Cog.listener()

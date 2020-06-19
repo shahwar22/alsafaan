@@ -146,47 +146,47 @@ class TransferLookup(commands.Cog):
     @lookup.command(name="player")
     async def _player(self, ctx, *, qry: commands.clean_content):
         """ Lookup a player on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "players")
+        await transfer_tools.search(ctx, qry, "players")
 
     @lookup.command(name="manager", aliases=["staff", "trainer", "trainers", "managers"])
     async def _manager(self, ctx, *, qry: commands.clean_content):
         """ Lookup a manager/trainer/club official on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "managers")
+        await transfer_tools.search(ctx, qry, "managers")
 
     @lookup.command(name="team", aliases=["club"])
     async def _team(self, ctx, *, qry: commands.clean_content):
         """ Lookup a team on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "clubs")
+        await transfer_tools.search(ctx, qry, "clubs")
 
     @lookup.command(name="ref")
     async def _ref(self, ctx, *, qry: commands.clean_content):
         """ Lookup a referee on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "referees")
+        await transfer_tools.search(ctx, qry, "referees")
 
     @lookup.command(name="cup", aliases=["domestic"])
     async def _cup(self, ctx, *, qry: commands.clean_content):
         """ Lookup a domestic competition on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "domestic competitions")
+        await transfer_tools.search(ctx, qry, "domestic competitions")
 
     @lookup.command(name="international", aliases=["int"])
     async def _int(self, ctx, *, qry: commands.clean_content):
         """ Lookup an international competition on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "International Competitions")
+        await transfer_tools.search(ctx, qry, "International Competitions")
 
     @lookup.command(name="agent")
     async def _agent(self, ctx, *, qry: commands.clean_content):
         """ Lookup an agent on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "Agent")
+        await transfer_tools.search(ctx, qry, "Agents")
 
     @commands.command(aliases=["loans"], usage="transfers <team to search for>")
     async def transfers(self, ctx, *, qry: commands.clean_content):
         """ Get this season's transfers for a team on transfermarkt """
-        await transfer_tools.search(self, ctx, qry, "Transfers", special=True)
+        await transfer_tools.search(ctx, qry, "Transfers", special=True)
 
     @commands.command(name="rumours", aliases=["rumors"])
     async def _rumours(self, ctx, *, qry: commands.clean_content):
         """ Get the latest transfer rumours for a team """
-        await transfer_tools.search(self, ctx, qry, "Rumours", special=True)
+        await transfer_tools.search(ctx, qry, "Rumours", special=True)
 
     async def get_transfers(self, ctx, e, target):
         e.description = ""

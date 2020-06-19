@@ -11,6 +11,7 @@ from importlib import reload
 
 
 class Reminders(commands.Cog):
+    """ Set yourself reminders """
     def __init__(self, bot):
         self.bot = bot
         self.active_module = True
@@ -28,7 +29,9 @@ class Reminders(commands.Cog):
         for r in records:
             self.bot.reminders.append(self.bot.loop.create_task(timed_events.spool_reminder(self.bot, r)))
     
-    @commands.command(aliases=['reminder', 'remind', 'remindme'])
+    @commands.group(aliases=['reminder', 'remind', 'remindme'],
+                    usage="<Amount of time> <Reminder message>",
+                    invoke_without_command=True)
     async def timer(self, ctx, time, *, message: commands.clean_content):
         """ Remind you of something at a specified time.
             Format is remind 1d2h3m4s <note>, e.g. remind 1d3h Kickoff."""
@@ -54,8 +57,8 @@ class Reminders(commands.Cog):
         e.timestamp = remind_at
         await ctx.send(embed=e)
     
-    @commands.command(aliases=["timers"])
-    async def reminders(self, ctx):
+    @timer.command(aliases=["timers"])
+    async def list(self, ctx):
         """ Check your active reminders """
         connection = await self.bot.db.acquire()
         records = await connection.fetch(""" SELECT * FROM reminders WHERE user_id = $1 """, ctx.author.id)

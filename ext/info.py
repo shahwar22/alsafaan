@@ -38,7 +38,7 @@ class Info(commands.Cog):
         e.description += prefixes
         
         technical_stats = f"{datetime.datetime.now() - self.bot.initialised_at}\n"
-        technical_stats += f"{sum(self.bot.commands_used.values())} commands ran since last reload."
+        technical_stats += f"{sum(self.bot.commands_used.values())} commands ran this session."
         e.add_field(name="Uptime", value=technical_stats, inline=False)
         
         invite_and_stuff = f"[Invite me to your server]" \
@@ -97,7 +97,7 @@ class Info(commands.Cog):
         e.set_footer(text='Account created').timestamp = member.created_at
         
         try:
-            roles = [role.name.replace('@', '@\u200b') for role in member.roles]
+            roles = [role.mention for role in member.roles]
             e.add_field(name='Roles', value=', '.join(roles), inline=False)
             voice = member.voice
             if voice is not None:
@@ -131,15 +131,18 @@ class Info(commands.Cog):
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id)
         field_1_text = f"{status}ID: {member.id}\n{activity}"
         if shared - 1:
-            field_1_text += f"Seen in {shared} other guilds."
+            field_1_text += f"Seen in {shared} other discords."
         e.add_field(name="User info", value=field_1_text)
         e.set_author(name=str(member), icon_url=member.avatar_url or member.default_avatar_url)
         
         if member.bot:
             e.description += "\n**🤖 This user is a bot**"
-            
-        if member.is_on_mobile():
-            e.description += "\n📱 Using mobile app."
+        
+        try:
+            if member.is_on_mobile():
+                e.description += "\n📱 Using mobile app."
+        except AttributeError:  # User.
+            pass
         
         if member.avatar:
             e.set_thumbnail(url=member.avatar_url)

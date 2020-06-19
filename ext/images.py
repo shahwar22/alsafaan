@@ -242,12 +242,11 @@ async def get_faces(ctx, target):
     return image, response, target
 
 
-# TODO: XKCD Command.
-# TODO: Embedify with local embed upload & source image & author.
+# TODO: XKCD Command. https://xkcd.com/json.html
 
 
-class ImageManip(commands.Cog):
-    """ Edit images for you """
+class Images(commands.Cog):
+    """ Image manipulation commands """
     
     def __init__(self, bot):
         self.bot = bot
@@ -474,4 +473,4 @@ class ImageManip(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(ImageManip(bot))
+    bot.add_cog(Images(bot))

@@ -137,6 +137,7 @@ class Mod(commands.Cog):
         except discord.Forbidden:
             pass
         await destination.send(msg)
+
     
     @commands.command(usage="topic <New Channel Topic>")
     @commands.has_permissions(manage_channels=True)
@@ -232,16 +233,17 @@ class Mod(commands.Cog):
                     print("Failed while banning ID#.")
         await ctx.send("\n".join(replies))
     
-    @commands.command()
+    @commands.command(usage= "unban <UserID of member: e.g. 13231232131> ")
     @commands.has_permissions(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def unban(self, ctx, *, who):
-        """ Unbans a user from the server (use name#discrim or userid)"""
+        """ Unbans a user from the server """
         # Try to get by user_id.
+        user = discord.Object(who)
+        await ctx.guild.unban(user)
         if who.isdigit():
-            who = self.bot.get_user(int(who))
             try:
-                await self.bot.http.unban(who.id, ctx.guild.id)
+                await self.bot.http.unban(who, ctx.guild.id)
             except discord.Forbidden:
                 await ctx.send("⛔ I can't unban that user.")
             except discord.HTTPException:
@@ -252,16 +254,16 @@ class Mod(commands.Cog):
             try:
                 un, discrim = who.split('#')
                 for i in await ctx.guild.bans():
-                    if i.user.display_name == un:
-                        if i.discriminator == discrim:
-                            try:
-                                await self.bot.http.unban(i.user.id, ctx.guild.id)
-                            except discord.Forbidden:
-                                await ctx.send("⛔ I can't unban that user.")
-                            except discord.HTTPException:
-                                await ctx.send("❔ Unban failed.")
-                            else:
-                                await ctx.send(f"🆗 {who} was unbanned")
+                    if i.user.display_name == un and i.discriminator == discrim:
+                        try:
+                            await self.bot.http.unban(i.user.id, ctx.guild.id)
+                        except discord.Forbidden:
+                            await ctx.send("⛔ I can't unban that user.")
+                        except discord.HTTPException:
+                            await ctx.send("❔ Unban failed.")
+                        else:
+                            await ctx.send(f"🆗 {who} was unbanned")
+                        return
             except ValueError:
                 for i in await ctx.guild.bans():
                     if i.user.name == who:
@@ -272,7 +274,8 @@ class Mod(commands.Cog):
                         except discord.HTTPException:
                             await ctx.send("❔ Unban failed.")
                         else:
-                            await ctx.send(f"🆗 {who} was unbanned")
+                            await ctx.send(f"🆗 {i.user} was unbanned")
+                    return
     
     @commands.command(aliases=['bans'])
     @commands.has_permissions(view_audit_log=True)
@@ -469,7 +472,7 @@ class Mod(commands.Cog):
         
         if ctx.invoked_with == "enable":
             if command not in self.bot.disabled_cache[ctx.guild.id]:
-                return await ctx.send("That command isn't disabled on this server.")
+                return await ctx.send(f"The {command} command isn't disabled on this server.")
             else:
                 connection = await self.bot.db.acquire()
                 async with connection.transaction():
@@ -577,7 +580,7 @@ class Mod(commands.Cog):
         e.description = f"{', '.join([i.mention for i in members])} temporarily muted:"
         e.add_field(name="Until", value=human_time)
         if reason is not None:
-            e.add_field(name="Reason", value=reason)
+            e.add_field(name="Reason", value=str(reason))
         e.colour = 0x00ffff
         e.timestamp = remind_at
         await ctx.send(embed=e)

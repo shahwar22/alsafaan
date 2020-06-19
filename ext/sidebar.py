@@ -40,6 +40,7 @@ def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10220):
 
 
 class Sidebar(commands.Cog):
+    """ Edit the r/NUFC sidebar """
     def __init__(self, bot):
         self.bot = bot
         self.bot.reddit = praw.Reddit(**bot.credentials["Reddit"])
@@ -68,18 +69,30 @@ class Sidebar(commands.Cog):
         connection = await self.bot.db.acquire()
         self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
-
+    
+    # Reddit interactions
+    def upload_image(self, image_file_path, name, reason):
+        s = self.bot.reddit.subreddit("NUFC")
+        s.stylesheet.upload(name, image_file_path)
+        s.stylesheet.update(s.stylesheet().stylesheet, reason=reason)
+    
     async def edit_caption(self, new_caption, subreddit="NUFC"):
         # The 'sidebar' wiki page has two blocks of --- surrounding the "caption"
         # We get the old caption, then replace it with the new one, then re-upload the data.
-        old = await self.bot.loop.run_in_executor(None, self.get_header)
-        markdown = re.sub(r'---.*?---', f"---\n\n> {new_caption}\n\n---", old, flags=re.DOTALL)
-        await self.bot.loop.run_in_executor(None, self.bot.reddit.subreddit(subreddit).wiki['sidebar'].edit(markdown))
-    
-    def get_header(self, subreddit="NUFC"):
-        return self.bot.reddit.subreddit(subreddit).wiki['sidebar'].content_md
         
-    def post_sidebar(self, markdown, subreddit="NUFC"):
+        old = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
+        print("Old markdown", old)
+        markdown = re.sub(r'---.*?---', f"---\n\n> {new_caption}\n\n---", old, flags=re.DOTALL)
+        print("New markdown", markdown)
+        await self.bot.loop.run_in_executor(None, self.update_wiki, markdown, subreddit)
+    
+    def get_wiki(self, subreddit):
+        return self.bot.reddit.subreddit(subreddit).wiki['sidebar'].content_md
+    
+    def update_wiki(self, markdown, subreddit):  # Updates the manually editable sidebar page containing the caption.
+        self.bot.reddit.subreddit(subreddit).wiki['sidebar'].edit(markdown)
+    
+    def post_sidebar(self, markdown, subreddit):
         self.bot.reddit.subreddit(subreddit).mod.update(description=markdown)
     
     def get_match_threads(self, last_opponent, subreddit="NUFC"):
@@ -137,7 +150,7 @@ class Sidebar(commands.Cog):
             except IndexError:
                 print(team, "Not found in", [i['name'] for i in self.bot.teams])
             played, won, drew, lost = p[3:7]
-            goal_diff, points = p[8:10]
+            goal_diff, points = p[9:11]
             
             if qry.lower() in team.lower():
                 table_data += f"{movement} {rank} | **{team}** | **{played}** | **{won}** | **{drew}** | **{lost}** | "\
@@ -149,7 +162,7 @@ class Sidebar(commands.Cog):
 
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         # Fetch all data
-        top = await self.bot.loop.run_in_executor(None, self.get_header)
+        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC"   )
         fsr = await football.Team.by_id(qry=qry, team_id=team_id)
         fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
         results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/results")
@@ -180,21 +193,24 @@ class Sidebar(commands.Cog):
                 x.short_away = x.away
         
         # Build data with passed icons.
-        last_match = results[0]
         
+        # Start with "last match" bar at the top.
+        lm = results[0]
         # CHeck if we need to upload a temporary badge.
-        if not last_match.home_icon:
-            badge = await self.bot.loop.run_in_executor(None, last_match.get_badge, self.bot.fixture_driver, "home")
-            await self.bot.loop.run_in_executor(None, self.upload_badge, badge)
-        elif not last_match.away_icon:
-            badge = await self.bot.loop.run_in_executor(None, last_match.get_badge, self.bot.fixture_driver, "away")
-            await self.bot.loop.run_in_executor(None, self.upload_badge, badge)
+        if not lm.home_icon or not lm.away_icon:
+            which_team = "home" if not lm.home_icon else "away"
+            badge = await self.bot.loop.run_in_executor(None, lm.get_badge, self.bot.fixture_driver, which_team)
+            im = Image.open(badge)
+            im.save("TEMP_BADGE.png", "PNG")
+            await self.bot.loop.run_in_executor(None, self.upload_image, "TEMP_BADGE.png", "temp", "Upload a badge")
             
-        top_bar = last_match.top_bar
+        top_bar = f"> [{lm.home}]({lm.home_subreddit}) [{lm.score}]({lm.url}) [{lm.away}]({lm.away_subreddit})"
         if fixtures:
             header = "\n* Upcoming fixtures"
             th = "\n\n Date & Time | Match\n--:|:--\n"
-            fx_markdown = header + rows_to_md_table(th, [i.sidebar_markdown for i in fixtures])  # Show all fixtures.
+
+            mdl = [f"{i.formatted_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in fixtures]
+            fx_markdown = header + rows_to_md_table(th, mdl)  # Show all fixtures.
         else:
             fx_markdown = ""
         
@@ -210,38 +226,32 @@ class Sidebar(commands.Cog):
             header = "* Previous Results\n"
             markdown += header
             th = "\n Date | Result\n--:|:--\n"
-            rx_markdown = rows_to_md_table(th, [i.sidebar_markdown for i in results], max_length=len(markdown + footer))
+            
+            mdl = [f"{i.formatted_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
+            rx_markdown = rows_to_md_table(th, mdl, max_length=len(markdown + footer))
             markdown += rx_markdown
             
         markdown += footer
         return markdown
-    
-    def upload_badge(self, image):
-        im = Image.open(image)
-        im.save("temporary_badge.png", "PNG")
-        s = self.bot.reddit.subreddit("NUFC")
-        s.stylesheet.upload('temp', "temporary_badge.png")
-        s.stylesheet.update(s.stylesheet().stylesheet, reason="Update temporary badge image")
 
     @commands.command(invoke_without_command=True)
     @commands.has_permissions(manage_messages=True)
     async def sidebar(self, ctx, *, caption=None):
         """ Force a sidebar update, or use sidebar manual """
         if caption == "manual":  # Obsolete method.
-            caption = ""
+            caption = None
     
         async with ctx.typing():
             # Check if message has an attachment, for the new sidebar image.
             if caption is not None:
-                await self.bot.loop.run_in_executor(None, self.edit_caption, caption)
+                print('Accessing edit_caption with caption', caption)
+                await self.edit_caption(caption)
         
             if ctx.message.attachments:
                 s = self.bot.reddit.subreddit("NUFC")
                 await ctx.message.attachments[0].save("sidebar.png")
-                await self.bot.loop.run_in_executor(s.stylesheet.upload('sidebar', "sidebar.png"))
-                style = s.stylesheet().stylesheet
-                s.stylesheet.update(style, reason=f"{ctx.author.name} Updated sidebar image via discord.")
-        
+                await self.bot.loop.run_in_executor(None, self.upload_image, "sidebar.png", "sidebar",
+                                                    f"Sidebar image updated by {ctx.author} via discord")
             # Build
             markdown = await self.make_sidebar()
 

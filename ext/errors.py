@@ -6,6 +6,12 @@ import discord
 class Errors(commands.Cog):
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
+        if not ctx.me.permissions_in(ctx.channel).send_messages:
+            try:
+                return await ctx.message.add_reaction('⛔')
+            except discord.Forbidden:
+                return
+        
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return  # Fail silently.
         
@@ -13,11 +19,8 @@ class Errors(commands.Cog):
             if isinstance(error, discord.Forbidden):
                 print(f"Discord.Forbidden Error, check {ctx.command} bot_has_permissions  {ctx.message.content}\n"
                       f"{ctx.author}) in {ctx.channel.name} on {ctx.guild.name}")
-            try:
-                return await ctx.message.add_reaction('⛔')
-            except discord.Forbidden:
-                return
-        
+            return  # fail silently
+
         # Embed errors.
         e = discord.Embed()
         e.colour = discord.Colour.red()
@@ -28,7 +31,7 @@ class Errors(commands.Cog):
             useline = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
         else:
             useline = f"{ctx.prefix}{ctx.command.usage}"
-        e.add_field(name="Command Usage Examplee", value=useline)
+        e.add_field(name="Command Usage Example", value=useline)
 
         location = "a DM" if ctx.guild is None else f"{ctx.guild.name} ({ctx.guild.id})"
         context = f"({ctx.author}({ctx.author.id}) in {location}"
@@ -74,7 +77,7 @@ class Errors(commands.Cog):
             traceback.print_tb(cie.__traceback__)
             
             print(f'{cie.__class__.__name__}: {cie}')
-            print(location)
+            print(location, ctx.message.content)
             e.title = error.original.__class__.__name__
             tb_to_code = traceback.format_exception(type(cie), cie, cie.__traceback__)
             tb_to_code = ''.join(tb_to_code)
@@ -89,12 +92,12 @@ class Errors(commands.Cog):
             await ctx.send(embed=e)
         except discord.Forbidden:
             try:
-                await ctx.send('An error occurred, I need embed_links permissions to send embeds.')
+                await ctx.send('An error occurred when running your command.')
             except discord.Forbidden:
                 return  # well fuck you too then?
         except discord.HTTPException:
+            e.description = "An error occurred when running your command."
             print(e.description)
-            e.description = "An error occurred, error too long to output in embed."
             await ctx.send(embed=e)
 
             

@@ -1,3 +1,5 @@
+from json import JSONDecodeError
+
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from ext.utils import embed_utils
@@ -24,6 +26,17 @@ class Fixture:
         self.home = home
         self.away = away
         self.__dict__.update(kwargs)
+        
+    def __repr__(self):
+        return f"Fixture({self.__dict__})"
+    
+    def __str__(self):
+        tv = '📺' if hasattr(self, "is_televised") and self.is_televised else ""
+    
+        if hasattr(self, "url"):
+            return f"`{self.formatted_time}:` [{self.bold_score}{tv}]({self.url})"
+        else:
+            return f"`{self.formatted_time}:` {self.bold_score}{tv}"
     
     @property
     def formatted_time(self):
@@ -34,6 +47,85 @@ class Fixture:
                 return self.time.strftime('%a %d %b %H:%M')
         else:
             return self.time
+    
+    @property
+    def score(self) -> str:
+        if self.score_home is not None:
+            return f"{self.score_home} - {self.score_away}"
+        return "vs"
+    
+    @property
+    def bold_score(self) -> str:
+        if self.score_home is not None and self.score_home != "-":
+            # Embolden Winner.
+            if self.score_home > self.score_away:
+                return f"**{self.home} {self.score_home}** - {self.score_away} {self.away}"
+            elif self.score_home < self.score_away:
+                return f"{self.home} {self.score_home} - **{self.score_away} {self.away}**"
+            else:
+                return f"{self.home} {self.score_home} - {self.score_away} {self.away}"
+        else:
+            return f"{self.home} vs {self.away}"
+
+    @property
+    def live_score_text(self) -> str:
+        if self.state == "fin":
+            self.time = "FT"
+        return f"`{self.state_colour[0]}` {self.time} {self.home_cards} {self.bold_score} {self.away_cards}"
+
+    @property
+    def base_embed(self) -> discord.Embed:
+        e = discord.Embed()
+        # Don't use bold_score, embed author doesn't like it.
+        e.set_author(name=f"≡ {self.home} {self.score} {self.away} ({self.time})")
+        e.url = self.url
+        e.title = f"**{self.country}**: {self.league}"
+        e.timestamp = datetime.datetime.now()
+    
+        if self.time == "Postponed":
+            e.description = "This match has been postponed."
+    
+        e.colour = self.state_colour[1]
+        try:
+            h, m = self.time.split(':')
+            now = datetime.datetime.now()
+            when = datetime.datetime.now().replace(hour=int(h), minute=int(m))
+            x = when - now
+            e.set_footer(text=f"Kickoff in {x}")
+            e.timestamp = when
+        except (ValueError, AttributeError):
+            pass
+        return e
+
+    # For discord.
+    @property
+    def full_league(self) -> str:
+        return f"{self.country.upper()}: {self.league}"
+
+    @property
+    def state_colour(self) -> typing.Tuple:
+        if isinstance(self.time, datetime.datetime):
+            return "", discord.Embed.Empty  # Non-live matches
+        
+        if "Half Time" in self.time:
+            return "🟡", 0xFFFF00  # Yellow
+    
+        if "+" in self.time:
+            return "🟣", 0x9932CC  # Purple
+        
+        if not hasattr(self, "state"):
+            return "🔵", 0x4285F4  # Blue
+        
+        if self.state == "live":
+            return "🟢", 0x0F9D58  # Green
+    
+        if self.state == "fin":
+            return "🔵", 0x4285F4  # Blue
+    
+        if "Postponed" in self.time or "Cancelled" in self.time:
+            return "🔴", 0xFF0000  # Red
+    
+        return "⚫", 0x010101  # Black
     
     def get_badge(self, driver, team) -> BytesIO:
         xp = f'.//div[contains(@class, tlogo-{team})]//img'
@@ -55,11 +147,12 @@ class Fixture:
     def table(self, driver) -> BytesIO:
         delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]'),
                   (By.XPATH, './/div[@class="box_over_content"]')]
+        clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
         err = "No table found for this league."
         xp = './/div[@class="table__wrapper"]'
         
         image = selenium_driver.get_image(driver, self.url + "#standings;table;overall", xp, delete=delete,
-                                          failure_message=err)
+                                          clicks=clicks, failure_message=err)
         return image
     
     def stats_markdown(self, driver) -> str:
@@ -91,127 +184,38 @@ class Fixture:
         image = selenium_driver.get_image(driver, self.url + "#match-summary", xp, delete=delete,
                                           failure_message="Unable to find summary for this match")
         return image
-    
-    # For reddit.
-    @property
-    def top_bar(self):
-        return f"> [{self.home}]({self.home_subreddit}) [{self.score}]({self.url}) [{self.away}]({self.away_subreddit})"
-    
-    @property
-    def score(self):
-        if self.score_home is not None:
-            return f"{self.score_home} - {self.score_away}"
-        return "vs"
-    
-    @property
-    def sidebar_markdown(self):
-        return f"{self.formatted_time} | " \
-               f"[{self.short_home} {self.score} {self.short_away}]({self.url})\n"
-    
-    # For discord.
-    @property
-    def full_league(self) -> str:
-        return f"{self.country.upper()}: {self.league}"
-    
-    @property
-    def formatted_score(self) -> str:
-        if self.score_home is not None and self.score_home != "-":
-            # Embolden Winner.
-            if self.score_home > self.score_away:
-                return f"**{self.home} {self.score_home}** - {self.score_away} {self.away}"
-            elif self.score_home < self.score_away:
-                return f"{self.home} {self.score_home} - **{self.score_away} {self.away}**"
-            else:
-                return f"{self.home} {self.score_home} - {self.score_away} {self.away}"
-        else:
-            return f"{self.home} vs {self.away}"
-    
-    @property
-    def state_colour(self) -> typing.Tuple:
-        if "Half Time" in self.time:
-            return "🟡", 0xFFFF00  # Yellow
-        
-        if "+" in self.time:
-            return "🟣", 0x9932CC  # Purple
-        
-        if self.state == "live":
-            return "🟢", 0x0F9D58  # Green
-        
-        if self.state == "fin":
-            return "🔵", 0x4285F4  # Blue
-        
-        if "Postponed" in self.time or "Cancelled" in self.time:
-            return "🔴", 0xFF0000  # Red
-        
-        return "⚫", 0x010101  # Black
-    
-    @property
-    def emoji_time(self):
-        time = "FT" if self.state == "fin" else self.time
-        return f"`{self.state_colour[0]} {time}`"
-    
-    @property
-    def live_score_text(self) -> str:
-        home_cards = f"{self.home_attrs}" if self.home_attrs is not None else ""
-        away_cards = f"{self.away_attrs}" if self.away_attrs is not None else ""
-        return f"{self.emoji_time} {home_cards} {self.formatted_score} {away_cards}"
-    
-    @property
-    def live_score_embed_row(self) -> str:
-        return f"[{self.live_score_text}]({self.url})"
-    
-    @property
-    def base_embed(self) -> discord.Embed:
-        e = discord.Embed()
-        e.set_author(name=f"≡ {self.home} {self.score} {self.away} ({self.time})")
-        e.url = self.url
-        e.title = f"**{self.country}**: {self.league}"
-        e.timestamp = datetime.datetime.now()
-        
-        if self.time == "Postponed":
-            e.description = "This match has been postponed."
-        
-        e.colour = self.state_colour[1]
-        try:
-            h, m = self.time.split(':')
-            now = datetime.datetime.now()
-            when = datetime.datetime.now().replace(hour=int(h), minute=int(m))
-            x = when - now
-            e.set_footer(text=f"Kickoff in {x}")
-            e.timestamp = when
-        except ValueError:
-            pass
-        return e
-    
-    @property
-    def to_embed_row(self) -> str:
-        tv = '📺' if hasattr(self, "is_televised") and self.is_televised else ""
-        
-        if hasattr(self, "url"):
-            return f"`{self.formatted_time}:` [{self.formatted_score}{tv}]({self.url})"
-        else:
-            return f"`{self.formatted_time}:` {self.formatted_score} {tv}"
 
-
+    def head_to_head(self, driver) -> typing.Dict:
+        xp = ".//div[@id='tab-h2h-overall']"
+        element = selenium_driver.get_element(driver, self.url + "#h2h;overall", xp)
+        src = element.get_attribute('innerHTML')
+        tree = html.fromstring(src)
+        
+        tables = tree.xpath('.//table')
+        games = {}
+        for i in tables:
+            header = "".join(i.xpath('.//thead//text()')).strip()
+            fixtures = i.xpath('.//tbody//tr')
+            fx_list = []
+            for game in fixtures[:5]:  # Last 5 only.
+                game_id = game.xpath('.//@onclick')[0].split('(')[-1].split(',')[0].strip('\'').split('_')[-1]
+                url = "http://www.flashscore.com/match/" + game_id
+                home, away = game.xpath('.//td[contains(@class, "name")]//text()')
+                time = game.xpath('.//span[@class="date"]/text()')[0]
+                score_home, score_away = game.xpath('.//span[@class="score"]//text()')[0].split(':')
+                country_league = game.xpath('.//td[2]/@title')[0]
+                country, league = country_league.split('(')
+                league = league.strip(')')
+                fx = Fixture(home=home, away=away, time=time, score_home=int(score_home), score_away=int(score_away),
+                             country=country, league=league, url=url)
+                fx_list.append(fx)
+            games.update({header: fx_list})
+        return games
+    
+    
 class Player:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-    
-    @property
-    def player_embed_row(self) -> str:
-        return f"`{str(self.number).rjust(2)}`: {self.flag} [{self.name}]({self.link}) {self.position}{self.injury}"
-    
-    @property
-    def injury_embed_row(self) -> str:
-        return f"{self.flag} [{self.name}]({self.link}) ({self.position}): {self.injury}"
-    
-    @property
-    def scorer_embed_row(self) -> str:
-        return f"{self.flag} [{self.name}]({self.link}) {self.goals} in {self.apps} appearances"
-    
-    @property
-    def scorer_embed_row_team(self) -> str:
-        return f"{self.flag} [{self.name}]({self.link}) ({self.team}) {self.goals} Goals, {self.assists} Assists"
 
 
 class FlashScoreSearchResult:
@@ -324,11 +328,13 @@ class Competition(FlashScoreSearchResult):
     
     def table(self, driver) -> BytesIO:
         xp = './/div[@class="table__wrapper"]'
-        clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
-        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]'),
-                  (By.XPATH, './/div[@class="box_over_content"]')]
+        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
+                  (By.XPATH, './/div[contains(@class="isSticky")]'),
+                  (By.XPATH, './/div[contains(@id,"box-over-content")]'),
+                  (By.XPATH, './/div[@class="ot-sdk-container"]')
+                  ]
         err = f"No table found on {self.link}"
-        image = selenium_driver.get_image(driver, self.link + "/standings/", xp, err, clicks=clicks, delete=delete)
+        image = selenium_driver.get_image(driver, self.link + "/standings/", xp, err, delete=delete)
         self.fetch_logo(driver)
         return image
     
@@ -397,7 +403,11 @@ class Team(FlashScoreSearchResult):
         
         # Un-fuck FS JSON reply.
         res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
-        res = json.loads(res)
+        try:
+            res = json.loads(res)
+        except JSONDecodeError:
+            print(f"Json error attempting to decode query: {qry}")
+            print(res)
         for i in res['results']:
             if i['id'] == team_id:
                 return cls(**i)
@@ -485,6 +495,28 @@ class Team(FlashScoreSearchResult):
         return competitions
 
 
+class Goal:
+    def __init__(self, embed, home, away, competition, title, **kwargs):
+        self.embed = embed
+        self.home = home
+        self.away = away
+        self.competition = competition
+        self.title = title
+        self.__dict__.update(kwargs)
+    
+    @property
+    def fixture(self) -> str:
+        return f"{self.home} vs {self.away}"
+        
+    @property
+    def clean_link(self) -> str:
+        return self.embed.split('src=\'')[1].split("?s=2")[0].replace('\\', '')
+    
+    @property
+    def markdown_link(self) -> str:
+        return f"[{self.title}]({self.clean_link})"
+        
+
 class Stadium:
     def __init__(self, url, name, team, league, country, **kwargs):
         self.url = url
@@ -555,8 +587,10 @@ class Stadium:
         if data['home']:
             e.add_field(name="Home to", value=", ".join(data['home']), inline=False)
         
-        if data['old']:
+        try:
             e.add_field(name="Former home to", value=", ".join(data['old']), inline=False)
+        except KeyError:
+            pass
         
         # Location
         address = "Link to map" if not data['address'] else data['address']
@@ -581,6 +615,21 @@ class Stadium:
 
 
 # Factory methods.
+async def get_goals() -> typing.List[Goal]:
+    goals = []
+    async with aiohttp.ClientSession() as cs:
+        async with cs.get('https://www.scorebat.com/video-api/v1/') as resp:
+            data = await resp.json()
+            
+        for match in data:
+            for video in match['videos']:
+                if "highlights" not in video['title'].lower():
+                    this_goal = Goal(embed=video['embed'], home=match['side1']['name'], away=match['side2']['name'],
+                                     competition=match['competition']['name'], title=video['title'])
+                    goals.append(this_goal)
+    return goals
+
+
 async def get_stadiums(query) -> typing.List[Stadium]:
     qry = urllib.parse.quote_plus(query)
     async with aiohttp.ClientSession() as cs:
@@ -627,6 +676,11 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     
     # Un-fuck FS JSON reply.
     res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
-    res = json.loads(res)
+    try:
+        res = json.loads(res)
+    except JSONDecodeError:
+        print(f"Json error attempting to decode query: {query}")
+        print(res)
+        raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
     filtered = filter(lambda i: i['participant_type_id'] in (0, 1), res['results'])  # discard players.
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]

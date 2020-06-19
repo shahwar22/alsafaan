@@ -5,7 +5,7 @@ import random
 
 
 class NUFC(commands.Cog):
-	""" NUFC.com player profiles """
+	""" r/NUFC discord commands """
 	
 	def __init__(self, bot):
 		self.bot = bot

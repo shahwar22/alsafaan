@@ -19,8 +19,8 @@ from ext.utils.embed_utils import paginate
 # Constants.
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
                  "\n\nYou can add more leagues with `.tb ls add league_name`" \
-                 "\nYou can reset your leagues with `.tb ls reset" \
-                 "  \nTo find out which leagues currently have games, use `.tb scores`"
+                 "\nYou can reset your leagues to the list of default leagues with `.tb ls reset`" \
+                 "\nTo find out which leagues currently have games, use `.tb scores`"
 NO_CLEAR_CHANNEL_PERM = "Unable to clean previous messages, please make sure I have manage_messages permissions."
 NO_MANAGE_CHANNELS = "Unable to create live-scores channel. Please make sure I have the manage_channels permission."
 
@@ -45,7 +45,6 @@ default_leagues = [
     "USA: MLS"
 ]
 
-# TODO: https://www.scorebat.com/video-api/
 # TODO: re-code vidi-printer
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 
@@ -60,7 +59,7 @@ async def _search(ctx, qry) -> str or None:
     return search_results[index]
 
 
-class Scores(commands.Cog):
+class LiveScores(commands.Cog):
     """ Live Scores channel module """
     
     def __init__(self, bot):
@@ -86,7 +85,7 @@ class Scores(commands.Cog):
         # Grab most recent data.
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            channels = await connection.fetch("""
+            records = await connection.fetch("""
             SELECT guild_id, scores_channels.channel_id, league
             FROM scores_channels
             LEFT OUTER JOIN scores_leagues
@@ -97,10 +96,13 @@ class Scores(commands.Cog):
         self.cache.clear()
         
         # Repopulate.
-        for r in channels:
+        for r in records:
             if self.bot.get_channel(r['channel_id']) is None:
                 continue
-            self.cache[(r["guild_id"], r["channel_id"])].update(r["league"])
+            
+            key = (r["guild_id"], r["channel_id"])
+            if r["league"] is not None:
+                self.cache[key].add(r["league"])
     
     # Core Loop
     @tasks.loop(minutes=1)
@@ -117,10 +119,11 @@ class Scores(commands.Cog):
         # Key games by league for intersections.
         game_dict = defaultdict(set)
         for i in self.bot.games:
-            game_dict[i.full_league].update(i.live_score_text)
+            game_dict[i.full_league].add(i.live_score_text)
         
         # Iterate: Check vs each server's individual config settings
-        for (guild_id, channel_id), whitelist in self.cache.items():
+        # Error if dict changes sizes during iteration.
+        for (guild_id, channel_id), whitelist in self.cache.copy().items():
             
             # Does league exist in both whitelist and found games.
             channel_leagues_required = game_dict.keys() & whitelist
@@ -137,7 +140,7 @@ class Scores(commands.Cog):
                         this_chunk = ""
                     this_chunk += hdr + "\n"
                     
-                    for game in game_dict[league]:
+                    for game in sorted(game_dict[league]):
                         if len(this_chunk + game) > 1999:
                             chunks += [this_chunk]
                             this_chunk = ""
@@ -198,8 +201,8 @@ class Scores(commands.Cog):
     
         country = None
         league = None
-        home_attrs = None
-        away_attrs = None
+        home_cards = ""
+        away_cards = ""
         home_goals = None
         away_goals = None
         url = None
@@ -227,11 +230,11 @@ class Scores(commands.Cog):
             
                 games.append(football.Fixture(time=time, home=home, away=away, url=url, country=country,
                                               league=league, score_home=home_goals, score_away=away_goals,
-                                              home_attrs=home_attrs, away_attrs=away_attrs, state=state))
+                                              away_cards=away_cards, home_cards=home_cards, state=state))
             
                 # Clear attributes
-                home_attrs = None
-                away_attrs = None
+                home_cards = ""
+                away_cards = ""
                 state = ""
         
             elif tag == "h4":
@@ -240,6 +243,15 @@ class Scores(commands.Cog):
             elif tag == "span":
                 # Sub-span containing postponed data.
                 time = i.find('span').text if i.find('span') is not None else i.text
+
+                # Timezone Correction
+                try:
+                    time = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
+                    time = datetime.datetime.strftime(time, "%H:%M")
+                except ValueError:
+                    pass
+                
+                # Is the match finished?
                 try:
                     state = i.find('span').attrib['class']
                 except AttributeError:
@@ -262,9 +274,9 @@ class Scores(commands.Cog):
                 if "rcard" in i.attrib['class']:
                     cards = "`" + "🟥" * int("".join([i for i in i.attrib['class'] if i.isdigit()])) + "`"
                     if "-" not in capture_group:
-                        home_attrs = cards
+                        home_cards = cards
                     else:
-                        away_attrs = cards
+                        away_cards = cards
                 else:
                     print("Live scores loop / Unhandled class for ", i.home, "vs", i.away, i.attrib['class'])
             else:
@@ -346,7 +358,7 @@ class Scores(commands.Cog):
             e.clear_fields()
         await paginate(ctx, embeds)
 
-    @ls.command(usage="ls create (Optional: Channel-name)")
+    @ls.command(usage="[Channel-Name]]")
     @commands.has_permissions(manage_channels=True)
     async def create(self, ctx, *, name=None):
         """ Create a live-scores channel for your server. """
@@ -378,9 +390,9 @@ class Scores(commands.Cog):
         await self.update_cache()
 
     @commands.has_permissions(manage_channels=True)
-    @ls.command(usage="ls add <(Optional: #channel #channel2)> <search query>")
+    @ls.command(usage="[Optional: #channel #channel2] <search query>")
     async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry: commands.clean_content = None):
-        """ Add a league to your live-scores channel """
+        """ Add a league to an existing live-scores channel """
         channels = await self._pick_channels(ctx, channels)
         
         if not channels:
@@ -403,8 +415,9 @@ class Scores(commands.Cog):
                 if (ctx.guild.id, c.id) not in self.cache:
                     replies.append(f'🚫 {c.mention} is not set as a scores channel.')
                     continue
+                
                 leagues = self.cache[(ctx.guild.id, c.id)]
-                leagues.update(res)
+                leagues.add(res)
                 for league in leagues:
                     await connection.execute("""
                         INSERT INTO scores_leagues (league,channel_id)
@@ -418,15 +431,11 @@ class Scores(commands.Cog):
         await self.update_cache()
         await ctx.send("\n".join(replies))
     
-    @ls.group(name="remove", aliases=["del", "delete"],
-              usage="ls remove <Optional: #channel> <Country: League Name>",
+    @ls.group(name="remove", aliases=["del", "delete"], usage="[Optional: #channel] <Country: League Name>",
               invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def _remove(self, ctx, channel: discord.TextChannel = None, *, target: commands.clean_content):
-        """ Remove a competition from a live-scores channel
-        
-        Either perform ls remove <league name> in the channel you wish to delete it from, or use
-        ls remove #channel <league name> to delete it from another channel."""
+        """ Remove a competition from an existing live-scores channel """
         # Verify we have a valid livescores channel target.
         channel = ctx.channel if channel is None else channel
         if channel.id not in {i[1] for i in self.cache}:
@@ -452,12 +461,12 @@ class Scores(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
     
-    @_remove.command()
+    @_remove.command(usage="[Optional: #channel-name]")
     @commands.has_permissions(manage_channels=True)
     async def all(self, ctx, channel: discord.TextChannel = None):
         """ Remove ALL competitions from a live-scores channel
 
-        Either perform ls remove all in the channel you wish to delete it from, or use
+        Either perform `ls remove all` in the channel you wish to delete it from, or use
         ls remove all #channel to delete it from another channel."""
         channel = ctx.channel if channel is None else channel
         if channel.id not in {i[1] for i in self.cache}:
@@ -472,7 +481,7 @@ class Scores(commands.Cog):
         await ctx.send(f"✅ {channel.mention} no longer tracks any leagues. Use `ls reset` or `ls add` to "
                        f"re-popultate it with new leagues or the default leagues.")
     
-    @ls.command(usage="ls reset <#channel>")
+    @ls.command(usage="[Optional: #channel-name]")
     @commands.has_permissions(manage_channels=True)
     async def reset(self, ctx, channel: discord.TextChannel = None):
         """ Reset competitions for a live-scores channel to the defaults.
@@ -499,4 +508,4 @@ class Scores(commands.Cog):
     
 
 def setup(bot):
-    bot.add_cog(Scores(bot))
+    bot.add_cog(LiveScores(bot))
