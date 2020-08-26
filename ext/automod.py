@@ -63,10 +63,10 @@ class AutoMod(commands.Cog):
 
         connection = await self.bot.db.acquire()
         await connection.execute("""
-        INSERT INTO mention_spam (guild_id,mention_threshold,mention_action)
-`   	VALUES ($1,$2,$3)
+        INSERT INTO mention_spam (guild_id,mention_threshold, mention_action)
+    	VALUES ($1, $2, $3)
         ON CONFLICT (guild_id) DO UPDATE SET
-             (mention_threshold,mention_action) = ($2,$3)
+             (mention_threshold, mention_action) = ($2,$3)
         WHERE
              EXCLUDED.guild_id = $1
         """, ctx.guild.id, threshold, action)
@@ -81,13 +81,13 @@ class AutoMod(commands.Cog):
             return
         if guild_cache["mention_threshold"] > len(message.mentions):
             return
-        if guild_cache["action"] == "kick":
+        if guild_cache["mention_action"] == "kick":
             await message.author.kick(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
             return await message.channel.send(f"{message.author.mention} was kicked for mention spamming.")
-        elif guild_cache["action"] == "ban":
+        elif guild_cache["mention_action"] == "ban":
             await message.author.ban(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
             return await message.channel.send(f"☠️ {message.author.mention} was banned for mention spamming.")
-        elif guild_cache["action"] == "mute":
+        elif guild_cache["mention_action"] == "mute":
             muted_role = discord.utils.get(message.guild.roles, name='Muted')
             if not muted_role:
                 muted_role = await message.guild.create_role(name="Muted")
