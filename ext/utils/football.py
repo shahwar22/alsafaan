@@ -25,6 +25,23 @@ class Fixture:
         self.time = time
         self.home = home
         self.away = away
+        
+        # Initialise some vars...
+        self.score_home = None
+        self.score_away = None
+        
+        # Match Thread Bot specific vars
+        self.kickoff = None
+        self.referee = None
+        self.stadium = None
+        self.attendance = None
+        self.country = None
+        self.league = None
+        self.comp_link = None
+        self.events = None
+        self.penalties_home = None
+        self.penalties_away = None
+        self.images = None
         self.__dict__.update(kwargs)
         
     def __repr__(self):
@@ -37,7 +54,28 @@ class Fixture:
             return f"`{self.formatted_time}:` [{self.bold_score}{tv}]({self.url})"
         else:
             return f"`{self.formatted_time}:` {self.bold_score}{tv}"
-    
+
+    @classmethod
+    def by_id(cls, match_id, driver=None):
+        url = "http://www.flashscore.com/match/" + match_id
+        src = selenium_driver.get_html(driver, url, xpath=".//div[@class='team spoiler-content']")
+        tree = html.fromstring(src)
+        
+        home = "".join(tree.xpath('.//div[contains(@class, "tname-home")]//a/text()')).strip()
+        away = "".join(tree.xpath('.//div[contains(@class, "tname-away")]//a/text()')).strip()
+        ko = "".join(tree.xpath(".//div[@id='utime']/text()")).strip()
+        ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
+        
+        country_league = "".join(tree.xpath('.//span[@class="description__country"]//text()'))
+        comp_link_raw = "".join(tree.xpath('.//span[@class="description__country"]//a/@onclick'))
+        country, competition = country_league.split(':')
+        country = country.strip()
+        competition = competition.strip()
+        comp_link = "http://www.flashscore.com" + comp_link_raw.split("'")[1]
+        
+        return cls(url=url, home=home, away=away, time=ko, kickoff=ko, league=competition, comp_link=comp_link,
+                   country=country)
+
     @property
     def formatted_time(self):
         if isinstance(self.time, datetime.datetime):
@@ -79,6 +117,7 @@ class Fixture:
         # Don't use bold_score, embed author doesn't like it.
         e.set_author(name=f"≡ {self.home} {self.score} {self.away} ({self.time})")
         e.url = self.url
+        
         e.title = f"**{self.country}**: {self.league}"
         e.timestamp = datetime.datetime.now()
     
@@ -141,7 +180,7 @@ class Fixture:
                  "element.style.position = 'fixed';element.style.backgroundColor = '#ddd';" \
                  "element.style.zIndex = '999';"
         image = selenium_driver.get_image(driver, self.url + "#draw", xpath=xp, clicks=clicks, delete=delete,
-                                          script=script, failure_message="Unable to find bracket for that competition")
+                                          script=script, failure_message="Unable to find bracket for that tournament.")
         return image
     
     def table(self, driver) -> BytesIO:
@@ -155,15 +194,6 @@ class Fixture:
                                           clicks=clicks, failure_message=err)
         return image
     
-    def stats_markdown(self, driver) -> str:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
-        xp = ".//div[@class='statBox']"
-        element = selenium_driver.get_element(driver, self.url + "#match-statistics;0", xp, delete=delete)
-        print(element.inner_html)
-        # TODO: Finish.
-        markdown = "# Not implemented yet."
-        return markdown
-    
     def stats_image(self, driver) -> BytesIO:
         delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
         xp = ".//div[@class='statBox']"
@@ -172,9 +202,10 @@ class Fixture:
         return image
     
     def formation(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
+        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')] # advert overlay
+        clicks = [(By.XPATH, './/div[@id="onetrust-accept-btn-handler"]')]
         xp = './/div[@id="lineups-content"]'
-        image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=delete,
+        image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=delete, clicks=clicks,
                                           failure_message="Unable to find formations for this match")
         return image
     
@@ -212,6 +243,126 @@ class Fixture:
             games.update({header: fx_list})
         return games
     
+    def refresh(self, driver):  # This is a very intensive, full lookup, reserved for the match thread bot.
+        xp = ".//div[@id='utime']"
+        src = selenium_driver.get_html(driver, self.url, xp)
+        tree = html.fromstring(src)
+        
+        # Some of these will only need updating once per match
+        if self.kickoff is None:
+            ko = "".join(tree.xpath(".//div[@id='utime']/text()"))
+            ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
+            self.kickoff = ko
+        
+        if self.referee is None:
+            text = tree.xpath('.//div[@class="content"]//text()')
+            ref = "".join([i for i in text if "referee" in i.lower()]).strip().replace('Referee:', '')
+            venue = "".join([i for i in text if "venue" in i.lower()]).strip().replace('Venue:', '')
+            
+            self.referee = ref
+            self.stadium = venue
+            
+        if self.country is None or self.league is None:
+            country_league = "".join(tree.xpath('.//span[@class="description__country"]//text()'))
+            comp_link_raw = "".join(tree.xpath('.//span[@class="description__country"]//a/@onclick'))
+            country, competition = country_league.split(':')
+            country = country.strip()
+            competition = competition.strip()
+            comp_link = "http://www.flashscore.com" + comp_link_raw.split("'")[1]
+            self.country = country
+            self.league = competition
+            self.comp_link = comp_link
+        
+        # These must always be updated.
+        scores = tree.xpath('.//div[@class="current-result"]//span[@class="scoreboard"]/text()')
+        self.score_home = scores[0]
+        self.score_away = scores[1]
+        
+        incidents = tree.xpath('.//div[@class="detailMS"]/div')
+        events = []
+        for i in incidents:
+            if "Header" in i.attrib['class']:
+                parts = [x.strip() for x in i.xpath('.//text()')]
+                events.append(("header", parts))
+                if "Penalties" in parts:
+                    self.penalties_home = parts[1]
+                    self.penalties_away = parts[3]
+            else:
+                team = i.attrib['class']
+                team = "home" if "home" in team else "away"
+                
+                time = ""
+                sub_on, sub_off = "", ""
+                note = ""
+                event_type = None
+                player = ""
+                event_desc = ""
+                
+                for node in i.xpath("./*"):
+                    node_type = node.attrib['class']
+                    if "empty" in node_type:
+                        continue  # No events in half.
+                    
+                    # Time box
+                    if "time-box" in node_type:
+                        time = "".join(node.xpath('.//text()')).strip()
+                    
+                    # Substitution info
+                    elif node_type == "icon-box substitution-in":
+                        pass # We handle the other two instead.
+                    
+                    elif node_type == "substitution-in-name":
+                        sub_on = ''.join(node.xpath('.//a/text()')).strip()
+                        
+                    elif node_type == "substitution-out-name":
+                        sub_off = ''.join(node.xpath('.//a/text()')).strip()
+                    
+                    # Disciplinary actions
+                    elif "y-card" in node_type:
+                        event_type = "booking"
+                        
+                    elif "yr-card" in node_type:
+                        event_type = "2yellow"
+                    
+                    elif "r-card" in node_type:
+                        event_type = "dismissal"
+                        
+                    elif "subincident-name" in node_type:
+                        note = "".join(node.xpath('.//text()'))
+                        
+                    elif "note-name" in node_type:
+                        note = "".join(node.xpath('.//text()'))
+                        
+                    # Goals & Penalties
+                    elif "penalty-missed" in node_type:
+                        event_desc = node.attrib['title']
+                        event_type = "Penalty miss"
+                        
+                    elif "soccer-ball" in node_type:
+                        event_desc = node.attrib['title'].replace('<br />', " ")
+                        event_type = "Goal"
+                    
+                    # Player info
+                    elif node_type == "participant-name":
+                        player = ''.join(node.xpath('.//a/text()'))
+                        
+                    else:
+                        print("unhandled node", node_type, team, time, note, event_desc)
+                if sub_on:
+                    events.append(("Sub", time, team, (sub_on, sub_off)))
+                else:
+                    events.append((event_type, time, team, player, note, event_desc))
+            
+        self.events = events
+        
+        # TODO: Fetching images'
+        self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
+        
+        # TODO: Fetching players & formation'
+        # TODO: fetching statistics'
+
+        # TODO: fetching table'
+        
     
 class Player:
     def __init__(self, **kwargs):
@@ -234,12 +385,15 @@ class FlashScoreSearchResult:
         e = discord.Embed()
         
         if isinstance(self, Team):
-            e.title = self.title.split('(')[0]
+            try:
+                e.title = self.title.split('(')[0]
+            except AttributeError:
+                pass
         else:
             try:
                 ctry, league = self.title.split(': ')
                 e.title = f"{league} ({ctry.title()})"
-            except ValueError:
+            except (ValueError, AttributeError):
                 pass
         
         if self.logo_url is not None:
@@ -285,9 +439,15 @@ class FlashScoreSearchResult:
                 time = "?"
             elif "Postp" in time:  # Should be dd.mm hh:mm or dd.mm.yyyy
                 time = "🚫 Postponed "
+            elif "Awrd" in time:
+                time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m.%Y')
+                time = time.strftime("%d/%m/%Y")
+                time = f"{time} 🚫 FF"  # Forfeit
             else:
                 try:
                     time = datetime.datetime.strptime(time, '%d.%m.%Y')
+                    if time.year != datetime.datetime.now().year:
+                        time = time.strftime("%d/%m/%Y")
                 except ValueError:
                     dtn = datetime.datetime.now()
                     try:
@@ -392,6 +552,7 @@ class Team(FlashScoreSearchResult):
     
     @classmethod
     async def by_id(cls, qry, team_id):
+        qry_debug = qry
         # example id: p6ahwuwJ
         # example qry: newcastle
         qry = qry.replace("'", "")  # For some reason, ' completely breaks FS search, and people keep doing it?
@@ -405,13 +566,13 @@ class Team(FlashScoreSearchResult):
         res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
         try:
             res = json.loads(res)
+            for i in res['results']:
+                if i['id'] == team_id:
+                    return cls(**i)
         except JSONDecodeError:
-            print(f"Json error attempting to decode query: {qry}")
-            print(res)
-        for i in res['results']:
-            if i['id'] == team_id:
-                return cls(**i)
-    
+            print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
+            raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
+
     @property
     def link(self):
         if hasattr(self, 'override'):
@@ -667,6 +828,7 @@ async def get_stadiums(query) -> typing.List[Stadium]:
 
 
 async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
+    qry_debug = query
     query = query.replace("'", "")  # For some reason, ' completely breaks FS search, and people keep doing it?
     query = urllib.parse.quote(query)
     async with aiohttp.ClientSession() as cs:
@@ -679,8 +841,7 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     try:
         res = json.loads(res)
     except JSONDecodeError:
-        print(f"Json error attempting to decode query: {query}")
-        print(res)
+        print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug        }")
         raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
     filtered = filter(lambda i: i['participant_type_id'] in (0, 1), res['results'])  # discard players.
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]
