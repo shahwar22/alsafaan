@@ -13,17 +13,9 @@ class NUFC(commands.Cog):
 		with open('girls_names.txt', "r") as f:
 			self.girls = f.read().splitlines()
 	
-	
 	def cog_check(self, ctx):
 		if ctx.guild:
 			return ctx.guild.id in [238704683340922882, 332159889587699712]
-
-	async def on_cog_error(self, error):
-		if isinstance(commands.CheckFailure):
-			# Discard these silently.
-			return
-		# Pass to next error handler.
-		raise error
 	
 	@commands.Cog.listener()
 	async def on_member_join(self, member):
@@ -56,7 +48,7 @@ class NUFC(commands.Cog):
 			          "\n\n Score | Link | Direct | Author \n--|--|--|--|")]
 			for i in posts:
 				title = i.xpath(".//a[contains(@class, 'title')]/text()")
-				x = (".//ul[@class='flat-list buttons']/li[@class='first']//@href")
+				x = ".//ul[@class='flat-list buttons']/li[@class='first']//@href"
 				comme = i.xpath(x)
 				link = i.xpath(".//a[contains(@class, 'title')]/@href")
 				authn = i.xpath(".//a[contains(@class, 'author')]/text()")
@@ -78,7 +70,7 @@ class NUFC(commands.Cog):
 	@commands.command(aliases=["colour"], hidden=True)
 	async def color(self, ctx, color):
 		""" Gives you a colour """
-		if not ctx.channel.id == 332167049273016320:
+		if not ctx.channel.id == 744184024079007895:
 			await ctx.message.delete()
 			return await ctx.send(f"{ctx.author.mention} wrong channel.", delete_after=2)
 		else:
