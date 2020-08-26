@@ -5,7 +5,8 @@ import typing
 from PIL import Image
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
-from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, \
+    StaleElementReferenceException, UnexpectedAlertPresentException
 from selenium.webdriver import DesiredCapabilities
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -31,6 +32,8 @@ def fetch(driver, url, xpath, **kwargs):
         element = WebDriverWait(driver, 5).until(ec.visibility_of_element_located((By.XPATH, xpath)))
     except TimeoutException:
         element = None  # Rip
+    except UnexpectedAlertPresentException:
+        element = None  # fuckin spammers.
     
     # Delete floating ad banners or other shit that gets in the way
     if "delete" in kwargs:
@@ -59,8 +62,15 @@ def fetch(driver, url, xpath, **kwargs):
 
 
 def get_html(driver, url, xpath, **kwargs) -> str:
-    fetch(driver, url, xpath, **kwargs)
-    return driver.page_source
+    if driver is None:
+        driver = spawn_driver()
+        fetch(driver, url, xpath, **kwargs)
+        src = driver.page_source
+        driver.quit()
+        return src
+    else:
+        fetch(driver, url, xpath, **kwargs)
+        return driver.page_source
 
 
 def get_element(driver, url, xpath, **kwargs):
@@ -71,6 +81,8 @@ def get_element(driver, url, xpath, **kwargs):
 def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[BytesIO, typing.List[Image.Image], None]:
     element = fetch(driver, url, xpath, **kwargs)
     
+    assert element is not None, failure_message
+    
     if "multi_capture" in kwargs:
         max_iter = 10
         captures = [Image.open(BytesIO(element.screenshot_as_png))]
@@ -80,11 +92,9 @@ def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[Byt
                 z = WebDriverWait(driver, 3).until(ec.visibility_of_element_located(locator))
                 z.click()
             except TimeoutException:
-                print("Timed out.")
                 break
             except ElementNotInteractableException as err:
-                print(err)
-                print(err.__traceback__)
+                print(err, "\n", err.__traceback__)
 
             driver.execute_script(kwargs['multi_capture'][1])
             trg = driver.find_element_by_xpath(xpath)
@@ -92,7 +102,7 @@ def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[Byt
             max_iter -= 1
         return captures
     else:
-        assert element is not None, failure_message
+
         try:
             driver.execute_script("arguments[0].scrollIntoView();", element)
             im = Image.open(BytesIO(element.screenshot_as_png))
