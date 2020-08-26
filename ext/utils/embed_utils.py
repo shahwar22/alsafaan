@@ -86,8 +86,13 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         await ctx.send("I don't have add_reaction permissions so I can only show you the first page of results.")
         if not items:
             return None
-
-    m = await ctx.send(embed=embeds[page])
+    try:
+        m = await ctx.send(embed=embeds[page])
+    except discord.Forbidden:
+        try:
+            return await ctx.send('I need embed_links permissions to show you these results.')
+        except discord.Forbidden:
+            return await ctx.message.add_reaction('⛔')
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
