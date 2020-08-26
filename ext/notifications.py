@@ -33,14 +33,23 @@ class Notifications(commands.Cog):
         # Get settings.
         e = discord.Embed(color=0x7289DA)
         e.description = ""
-        e.title = f"Config settings for {ctx.guild.name}"
+        e.set_author(name=ctx.guild.name)
+        e.title = f"Notification message settings"
         
-        guild = [r for r in self.records if r["guild_id"] == ctx.guild.id]
-        if guild:
-            for key, value in guild[0]:
-                e.description += f"{key}: {value} \n"
-        else:
+        try:
+            r = [r for r in self.records if r["guild_id"] == ctx.guild.id][0]
+        except IndexError:
             e.description = "No configuration set."
+        else:
+            for key, value in dict(r).items():
+                if value is not None:
+                    try:
+                        value = self.bot.get_channel(value).mention
+                    except AttributeError:
+                        value = "Deleted channel."
+                    e.description += f"{key}: {value} \n"
+                else:
+                    e.description += f"{key}: Not set\n"
         
         e.set_thumbnail(url=ctx.guild.icon_url)
         await ctx.send(embed=e)
@@ -228,9 +237,12 @@ class Notifications(commands.Cog):
             
     @commands.Cog.listener()
     async def on_member_join(self, new_member):
-        joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == new_member.guild.id][0]
-        ch = self.bot.get_channel(joins)
-        if ch is None:
+        try:
+            joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == new_member.guild.id][0]
+            ch = self.bot.get_channel(joins)
+            if ch is None:
+                return
+        except IndexError:
             return
         
         # Extended member join information.
@@ -256,35 +268,38 @@ class Notifications(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
-        # Check if in mod.
+    
+        # Default outputs
+        try:
+            ch = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
+            ch = self.bot.get_channel(ch)
+        except (AttributeError, TypeError, IndexError):
+            ch = None
+        output = f"⬅ {member.mention} left the server."
+        
+        # Check if in mod action log and override to specific channels.
         try:
             async for x in member.guild.audit_logs(limit=1):
-                if str(x.target) == str(member):
-                    try:
-                        if x.action == discord.AuditLogAction.kick:
-                            kicks = [r['kicks_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
-                            ch = self.bot.get_channel(kicks)
-                            if ch is not None:
-                                return await ch.send(f"👢 {member.mention} was kicked by {x.user} for {x.reason}.")
-                        elif x.action == discord.AuditLogAction.ban:
-                            bans = [r['bans_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
-                            ch = self.bot.get_channel(bans)
-                            if ch is not None:
-                                return await ch.send(f"☠ {member.mention} was banned by {x.user} for {x.reason}.")
-                    except (AttributeError, TypeError):
-                        pass  # No kick/ban channel set, default to leaves.
+                if x.target == member:
+                    if x.action == discord.AuditLogAction.kick:
+                        output = f"👢 {member.mention} was kicked by {x.user} for {x.reason}."
+                    elif x.action == discord.AuditLogAction.ban:
+                        output = f"☠ {member.mention} was banned by {x.user} for {x.reason}."
         except discord.Forbidden:
             pass  # We cannot see audit logs.
         
-        try:
-            ch = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
-            await ch.send(f"⬅ {member.mention} left the server.")
-        except (AttributeError, TypeError, IndexError):
-            pass
+        if ch is None:
+            return  # Rip.
+        
+        await ch.send(output)
         
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild, before, after):
-        emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+        try:
+            emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+        except IndexError:
+            return
+        
         ch = guild.get_channel(emojis)
         
         if ch is None:
@@ -307,10 +322,16 @@ class Notifications(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild, user):
-        unbans = [r['unban_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+        try:
+            unbans = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+        except (IndexError, AttributeError):
+            return
+
         ch = self.bot.get_channel(unbans)
-        if ch is not None:
-            await ch.send(f"🆗 {user} (ID: {user.id}) was unbanned.")
+        if ch is None:
+            return
+        
+        await ch.send(f"🆗 {user} (ID: {user.id}) was unbanned.")
         
         
 def setup(bot):
