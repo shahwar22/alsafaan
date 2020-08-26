@@ -12,7 +12,7 @@ import re
 NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
 
 
-def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10220):
+def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10240):
     rows = []
     for num, obj in enumerate(strings):
         # Every row we buffer the length of the new result.
@@ -39,7 +39,7 @@ def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10220):
     return header + header.join(chunks)
 
 
-class Sidebar(commands.Cog):
+class NUFCSidebar(commands.Cog):
     """ Edit the r/NUFC sidebar """
     def __init__(self, bot):
         self.bot = bot
@@ -61,7 +61,7 @@ class Sidebar(commands.Cog):
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
         markdown = await self.make_sidebar()
-        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown)
+        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, "NUFC")
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
@@ -81,9 +81,7 @@ class Sidebar(commands.Cog):
         # We get the old caption, then replace it with the new one, then re-upload the data.
         
         old = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
-        print("Old markdown", old)
         markdown = re.sub(r'---.*?---', f"---\n\n> {new_caption}\n\n---", old, flags=re.DOTALL)
-        print("New markdown", markdown)
         await self.bot.loop.run_in_executor(None, self.update_wiki, markdown, subreddit)
     
     def get_wiki(self, subreddit):
@@ -162,7 +160,7 @@ class Sidebar(commands.Cog):
 
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         # Fetch all data
-        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC"   )
+        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
         fsr = await football.Team.by_id(qry=qry, team_id=team_id)
         fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
         results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/results")
@@ -228,10 +226,12 @@ class Sidebar(commands.Cog):
             th = "\n Date | Result\n--:|:--\n"
             
             mdl = [f"{i.formatted_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
-            rx_markdown = rows_to_md_table(th, mdl, max_length=len(markdown + footer))
+            print("Markdown + footer = ", len(markdown + footer))
+            rx_markdown = rows_to_md_table(th, mdl, max_length=10240 - len(markdown + footer))
             markdown += rx_markdown
             
         markdown += footer
+        print("Final markdown length is ", len(markdown))
         return markdown
 
     @commands.command(invoke_without_command=True)
@@ -244,7 +244,6 @@ class Sidebar(commands.Cog):
         async with ctx.typing():
             # Check if message has an attachment, for the new sidebar image.
             if caption is not None:
-                print('Accessing edit_caption with caption', caption)
                 await self.edit_caption(caption)
         
             if ctx.message.attachments:
@@ -268,4 +267,4 @@ class Sidebar(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(Sidebar(bot))
+    bot.add_cog(NUFCSidebar(bot))
