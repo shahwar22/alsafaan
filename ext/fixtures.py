@@ -24,25 +24,26 @@ class Fixtures(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        try:
-            self.driver = self.bot.fixture_driver
-        except AttributeError:
+        if self.bot.fixture_driver is None:
             self.bot.fixture_driver = spawn_driver()
-            self.driver = self.bot.fixture_driver
         for package in [transfer_tools, football, embed_utils]:
             reload(package)
 
     # Master picker.
     async def _search(self, ctx, qry, mode=None) -> str or None:
+        # Fucking idiot proofing.
+        if qry is not None:
+            qry = qry.strip('<>')
+        
         if qry is None:
             err = "Please specify a search query."
             if ctx.guild is not None:
                 result = await self._fetch_default(ctx, mode)
                 if result is not None:
                     if mode == "team":
-                        sr = football.Team(override=result, title=f"{ctx.guild.name} default")
+                        sr = football.Team(override=result)
                     else:
-                        sr = football.Competition(override=result, title=f"{ctx.guild.name} default")
+                        sr = football.Competition(override=result)
                     return sr
             else:
                 err += f"\nA default team or league can be set by moderators using {ctx.prefix}default)"
@@ -102,7 +103,7 @@ class Fixtures(commands.Cog):
         mode = mode.lower()
         if mode not in ["league", "team"]:
             return await ctx.send(':no_entry_sign: Invalid default type specified, valid types are "league" or "team"')
-        mode = "default_team" if mode == "team" else "default_league"
+        db_mode = "default_team" if mode == "team" else "default_league"
     
         if qry is None:
             connection = await self.bot.db.acquire()
@@ -115,9 +116,9 @@ class Fixtures(commands.Cog):
             if not record:
                 return await ctx.send(f"{ctx.guild.name} does not currently have a default team or league set.")
             league = record["default_league"] if record["default_league"] is not None else "not set."
-            output = f"Your default league is: {league}"
+            output = f"Your default league is: <{league}>"
             team = record["default_team"] if record["default_team"] is not None else "not set."
-            output += "\n" + team
+            output += f"\nYour default team is: <{team}>"
         
             return await ctx.send(output)
     
@@ -136,11 +137,11 @@ class Fixtures(commands.Cog):
     
         async with connection.transaction():
             await connection.execute(
-                f"""INSERT INTO scores_settings (guild_id,{mode})
+                f"""INSERT INTO scores_settings (guild_id,{db_mode})
                 VALUES ($1,$2)
 
                 ON CONFLICT (guild_id) DO UPDATE SET
-                    {mode} = $2
+                    {db_mode} = $2
                 WHERE excluded.guild_id = $1
             """, ctx.guild.id, url)
     
@@ -164,14 +165,14 @@ class Fixtures(commands.Cog):
             
             if isinstance(fsr, football.Competition):
                 async with sl_lock:
-                    image = await self.bot.loop.run_in_executor(None, fsr.table, self.driver)
+                    image = await self.bot.loop.run_in_executor(None, fsr.table, self.bot.fixture_driver)
 
                 embed = await fsr.base_embed
                 embed.title = fsr.title
                 embed.description = f"```yaml\n[{dtn}]```"
             elif isinstance(fsr, football.Team):
                 async with sl_lock:
-                    choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.driver)
+                    choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver)
                 for_picking = [i.full_league for i in choices]
                 embed = await fsr.base_embed
                 index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed))
@@ -179,7 +180,9 @@ class Fixtures(commands.Cog):
                     return  # rip
                 embed.title = for_picking[index]
                 embed.description = f"{choices[index]}"
-                image = await self.bot.loop.run_in_executor(None, choices[index].table, self.driver)
+                image = await self.bot.loop.run_in_executor(None, choices[index].table, self.bot.fixture_driver)
+            else:
+                print(f'WtfERROR: fsr is of type {type(fsr)}')
             fn = f"Table-{qry}-{dtn}.png".strip()
             await embed_utils.embed_image(ctx, embed, image, filename=fn)
 
@@ -196,14 +199,14 @@ class Fixtures(commands.Cog):
 
             if isinstance(fsr, football.Competition):
                 async with sl_lock:
-                    image = await self.bot.loop.run_in_executor(None, fsr.bracket, self.driver)
+                    image = await self.bot.loop.run_in_executor(None, fsr.bracket, self.bot.fixture_driver)
     
                 embed = await fsr.base_embed
                 embed.title = fsr.title
                 embed.description = f"```yaml\n[{dtn}]```"
             elif isinstance(fsr, football.Team):
                 async with sl_lock:
-                    choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.driver)
+                    choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver)
                 for_picking = [i.full_league for i in choices]
                 embed = await fsr.base_embed
                 index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed))
@@ -211,11 +214,11 @@ class Fixtures(commands.Cog):
                     return  # rip
                 embed.title = for_picking[index]
                 embed.description = f"{choices[index]}"
-                image = await self.bot.loop.run_in_executor(None, choices[index].bracket, self.driver)
+                image = await self.bot.loop.run_in_executor(None, choices[index].bracket, self.bot.fixture_driver)
             fn = f"Bracket-{qry}-{dtn}.png".strip()
             await embed_utils.embed_image(ctx, embed, image, filename=fn)
 
-    @commands.command(aliases=['fx'], usage="fixtures <team or league to search for>")
+    @commands.command(aliases=['fx'], usage="<Team or league name to search for>")
     async def fixtures(self, ctx, *, qry: commands.clean_content = None):
         """ Fetch upcoming fixtures for a team or league.
         Navigate pages using reactions. """
@@ -225,14 +228,15 @@ class Fixtures(commands.Cog):
             return  # Handled in _search.
         
         async with sl_lock:
-            fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.driver, '/fixtures')
-        fixtures = [str(i) for i in fixtures]
+            fx = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/fixtures')
+        fixtures = [str(i) for i in fx]
         embed = await fsr.base_embed
-        embed.title = f"≡ Fixtures for {embed.title}"
+        embed.title = f"≡ Fixtures for {embed.title}" if embed.title else "≡ Fixtures "
+        
         embeds = embed_utils.rows_to_embeds(embed, fixtures)
         await embed_utils.paginate(ctx, embeds)
     
-    @commands.command(aliases=['rx'], usage="<team or league to search for>")
+    @commands.command(aliases=['rx'], usage="<Team or league name to search for>")
     async def results(self, ctx, *, qry: commands.clean_content = None):
         """ Get past results for a team or league.
         Navigate pages using reactions. """
@@ -242,10 +246,10 @@ class Fixtures(commands.Cog):
             return
         
         async with sl_lock:
-            results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.driver, '/results')
+            results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/results')
         results = [str(i) for i in results]
         embed = await fsr.base_embed
-        embed.title = f"≡ Results for {embed.title}"
+        embed.title = f"≡ Results for {embed.title}" if embed.title else "≡ Results "
         embeds = embed_utils.rows_to_embeds(embed, results)
         await embed_utils.paginate(ctx, embeds)
     
@@ -259,7 +263,7 @@ class Fixtures(commands.Cog):
                 return await ctx.send(f"Unable to find a match for {qry}")
 
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.stats_image, self.driver)
+                file = await self.bot.loop.run_in_executor(None, game.stats_image, self.bot.fixture_driver)
             embed = game.base_embed
             await embed_utils.embed_image(ctx, embed, file)
 
@@ -273,7 +277,7 @@ class Fixtures(commands.Cog):
                 return await ctx.send(f"Unable to find a match for {qry}")
 
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.formation, self.driver)
+                file = await self.bot.loop.run_in_executor(None, game.formation, self.bot.fixture_driver)
             embed = game.base_embed
             await embed_utils.embed_image(ctx, embed, file)
     
@@ -287,7 +291,7 @@ class Fixtures(commands.Cog):
                 return await ctx.send(f"Unable to find a match for {qry}")
 
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.summary, self.driver)
+                file = await self.bot.loop.run_in_executor(None, game.summary, self.bot.fixture_driver)
             embed = game.base_embed
             await embed_utils.embed_image(ctx, embed, file)
 
@@ -301,36 +305,35 @@ class Fixtures(commands.Cog):
             if fsr is None:
                 return
             async with sl_lock:
-                players = await self.bot.loop.run_in_executor(None, fsr.players, self.driver)
+                players = await self.bot.loop.run_in_executor(None, fsr.players, self.bot.fixture_driver)
 
             embed = await fsr.base_embed
             players = [f"{i.flag} [{i.name}]({i.link}) ({i.position}): {i.injury}" for i in players if i.injury]
             players = players if players else ['No injuries found']
-            embed.title = f"Injuries for {embed.title}"
+            embed.title = f"≡ Injuries for {embed.title}" if embed.title else "≡ Injuries "
             embeds = embed_utils.rows_to_embeds(embed, players)
             await embed_utils.paginate(ctx, embeds)
     
     @commands.command(aliases=["team", "roster"], usage="<Team name to search for>")
-    async def squad(self, ctx, *, qry: commands.clean_content):
+    async def squad(self, ctx, *, qry: commands.clean_content = None):
         """ Lookup a team's squad members """
-        
-        qry = qry.strip('[]')
-        
         async with ctx.typing():
             await ctx.send("Searching...", delete_after=5)
             fsr = await self._search(ctx, qry, mode="team")
+            if fsr is None:
+                return
             
             async with sl_lock:
-                players = await self.bot.loop.run_in_executor(None, fsr.players, self.driver)
+                players = await self.bot.loop.run_in_executor(None, fsr.players, self.bot.fixture_driver)
             srt = sorted(players, key=lambda x: x.number)
             embed = await fsr.base_embed
-            embed.title = f"Squad for {embed.title}"
+            embed.title = f"≡ Squad for {embed.title}" if embed.title else "≡ Squad "
             players = [f"`{str(i.number).rjust(2)}`: {i.flag} [{i.name}]({i.link}) {i.position}{i.injury}" for i in srt]
             embeds = embed_utils.rows_to_embeds(embed, players)
             await embed_utils.paginate(ctx, embeds)
     
     @commands.command(invoke_without_command=True, aliases=['sc'], usage="<team or league to search for>")
-    async def scorers(self, ctx, *, qry: commands.clean_content):
+    async def scorers(self, ctx, *, qry: commands.clean_content = None):
         """ Get top scorers from a league, or search for a team and get their top scorers in a league. """
         await ctx.send("Searching...", delete_after=5)
         fsr = await self._search(ctx, str(qry))
@@ -339,13 +342,13 @@ class Fixtures(commands.Cog):
         
         if isinstance(fsr, football.Competition):
             async with sl_lock:
-                sc = await self.bot.loop.run_in_executor(None, fsr.scorers, self.driver)
+                sc = await self.bot.loop.run_in_executor(None, fsr.scorers, self.bot.fixture_driver)
             players = [f"{i.flag} [{i.name}]({i.link}) ({i.team}) {i.goals} Goals, {i.assists} Assists" for i in sc]
             embed = await fsr.base_embed
-            embed.title = f"Top Scorers for {embed.title}"
+            embed.title = f"≡ Top Scorers for {embed.title}" if embed.title else "≡ Top Scorers "
         else:
             async with sl_lock:
-                choices = await self.bot.loop.run_in_executor(None, fsr.player_competitions, self.driver)
+                choices = await self.bot.loop.run_in_executor(None, fsr.player_competitions, self.bot.fixture_driver)
             embed = await fsr.base_embed
             embed.set_author(name="Pick a competition")
             index = await embed_utils.page_selector(ctx, choices, base_embed=embed)
@@ -353,11 +356,12 @@ class Fixtures(commands.Cog):
                 return  # rip
             
             async with sl_lock:
-                players = await self.bot.loop.run_in_executor(None, fsr.players, self.driver, index)
+                players = await self.bot.loop.run_in_executor(None, fsr.players, self.bot.fixture_driver, index)
             players = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
             players = [f"{i.flag} [{i.name}]({i.link}) {i.goals} in {i.apps} appearances" for i in players]
             embed = await fsr.base_embed
-            embed.title = f"Top Scorers for {embed.title} in {choices[index]}"
+            embed.title = f"≡ Top Scorers for {embed.title} in {choices[index]}" if embed.title \
+                else f"Top Scorers in {choices[index]}"
         
         embeds = embed_utils.rows_to_embeds(embed, players)
         await embed_utils.paginate(ctx, embeds)
@@ -425,7 +429,10 @@ class Fixtures(commands.Cog):
             return  # rip
         async with sl_lock:
             fx = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
-            fx = fx[0]
+            try:
+                fx = fx[0]
+            except IndexError:
+                return await ctx.send("Couldn't find any upcoming fixture to get head to head info for")
             h2h = await self.bot.loop.run_in_executor(None, fx.head_to_head, self.bot.fixture_driver)
     
         e = fx.base_embed
@@ -435,37 +442,40 @@ class Fixtures(commands.Cog):
             e.add_field(name=k, value="\n".join([str(i) for i in v]), inline=False)
         await ctx.send(embed=e)
 
-    @commands.command(usage="<Player, team, or league name to search for>")
-    async def goals(self, ctx, qry: commands.clean_content):
-        """ [Work in progress] Search for a goal video from today's games  """
-        # Fetch JSON
-        goals = await football.get_goals()
+    # @commands.command(usage="<Player, team, or league name to search for>")
+    # async def goals(self, ctx, qry: commands.clean_content):
+    #     """ [Work in progress] Search for a goal video from today's games  """
+    #     # Fetch JSON
+    #     goals = await football.get_goals()
+    #
+    #     # By scorer
+    #     by_scorer = [i for i in goals if qry.lower() in i.title.lower()]
+    #     by_team = [i for i in goals if qry.lower() in i.home.lower() or qry.lower() in i.away.lower()]
+    #     by_league = [i for i in goals if qry.lower() in i.competition.lower()]
+    #
+    #     all_goals = set(by_scorer + by_team + by_league)
+    #
+    #     embeds = []
+    #
+    #     unique_leagues = set([i.competition for i in all_goals])
+    #     for league in unique_leagues:
+    #         e = discord.Embed(description="")
+    #         e.set_thumbnail(url='https://miro.medium.com/fit/c/210/210/1*_Qi7B6VkoF4YvhneoICulg.png')
+    #         e.colour = discord.Color.orange()
+    #         e.set_author(name=f"Videos for {qry}")
+    #         e.set_footer(text="Note: This command is not finished yet.")
+    #         e.title = f"{league}"
+    #
+    #         matches = set([i.fixture for i in all_goals if i.competition == league])
+    #         for game in matches:
+    #             e.description += F"**{game}**\n"
+    #             for goal in all_goals:
+    #                 if goal.fixture == game:
+    #                     e.description += f"{goal.markdown_link}\n"
+    #         embeds.append(e)
+    #     await embed_utils.paginate(ctx, embeds)
     
-        # By scorer
-        by_scorer = [i for i in goals if qry.lower() in i.title.lower()]
-        by_team = [i for i in goals if qry.lower() in i.home.lower() or qry.lower() in i.away.lower()]
-        by_league = [i for i in goals if qry.lower() in i.competition.lower()]
-    
-        all_goals = set(by_scorer + by_team + by_league)
-    
-        embeds = []
-    
-        unique_leagues = set([i.competition for i in all_goals])
-        for league in unique_leagues:
-            e = discord.Embed(description="")
-            e.set_thumbnail(url='https://miro.medium.com/fit/c/210/210/1*_Qi7B6VkoF4YvhneoICulg.png')
-            e.colour = discord.Color.orange()
-            e.set_author(name=f"Videos for {qry}")
-            e.title = f"{league}"
-        
-            matches = set([i.fixture for i in all_goals if i.competition == league])
-            for game in matches:
-                e.description += F"**{game}**\n"
-                for goal in all_goals:
-                    if goal.fixture == game:
-                        e.description += f"{goal.markdown_link}\n"
-            embeds.append(e)
-        await embed_utils.paginate(ctx, embeds)
+    #TODO: replace with https://www.reddit.com/r/soccer/search?q=flair%3Amedia+OR+flair%3AMirror&restrict_sr=on&sort=hot&t=day&feature=legacy_search#res-hide-options
 
 
 def setup(bot):
