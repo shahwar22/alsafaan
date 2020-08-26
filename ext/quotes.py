@@ -1,3 +1,5 @@
+from asyncpg import DataError, UniqueViolationError
+
 from ext.utils import embed_utils
 from discord.ext import commands
 import discord
@@ -97,12 +99,13 @@ class QuoteDB(commands.Cog):
         
         # Fetch.
         connection = await self.bot.db.acquire()
-        if multi:
-            r = await connection.fetch(sql, *escaped)
-        else:
-            r = await connection.fetchrow(sql, *escaped)
-            if r:
-                r = [r]
+        async with connection.transaction():
+            if multi:
+                r = await connection.fetch(sql, *escaped)
+            else:
+                r = await connection.fetchrow(sql, *escaped)
+                if r:
+                    r = [r]
                 
         await self.bot.db.release(connection)
         if not r:
@@ -113,9 +116,12 @@ class QuoteDB(commands.Cog):
         await embed_utils.paginate(ctx, embeds, preserve_footer=True)
 
     @commands.group(invoke_without_command=True, aliases=["quotes"],
-                    usage="quote <Optional: quote id or a @user to search quotes from them> ")
+                    usage="[quote id number or a @user to search quotes from them]")
     async def quote(self, ctx, quote_id: typing.Optional[int], users: commands.Greedy[discord.User]):
         """ Get a random quote from this server. (optionally by Quote ID# or user(s). """
+        if len(str(quote_id)) > 6:
+            return  await ctx.send("Too long to be a quote ID. if you're trying to add a quote, "
+                                   "use quote add number instead")
         await self._get_quote(ctx, quote_id=quote_id, users=users)
 
     # Add quote
@@ -141,36 +147,43 @@ class QuoteDB(commands.Cog):
         if not m.content:
             return await ctx.send('That message has no content.')
         connection = await self.bot.db.acquire()
-
-        await connection.execute(
-            """INSERT INTO quotes
-            (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
-            VALUES ($1,$2,$3,$4,$5,$6,$7)""",
-            m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
-        r = await connection.fetchrow("SELECT * FROM quotes ORDER BY quote_id DESC")
+        
+        async with connection.transaction():
+            await connection.execute(
+                """INSERT INTO quotes
+                (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
+                VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
+            try:
+                r = await connection.fetchrow("SELECT * FROM quotes ORDER BY quote_id DESC")
+            except UniqueViolationError as e:
+                print("uniqueViolatrionError", e)
+                return await ctx.send("That quote is already in the database!")
+            except Exception as b:
+                print(b.__name__, dir(b))
         await self.bot.db.release(connection)
         e = await self.embed_quotes([r])
         
         # There will only be one embed returned in this list this so we can just send e[0]
         await n.edit(content=":white_check_mark: Successfully added quote to database", embed=e[0])
-
+    
     # Find quote
-    @quote.command(aliases=['global'], usage="Quote all (Optional: @member)")
+    @quote.command(aliases=['global'], usage="[Optional: @member]")
     async def all(self, ctx, users: commands.Greedy[discord.User]):
         """ Get a random quote from any server, optionally from a specific user. """
         await self._get_quote(ctx, users=users, all_guilds=True)
 
-    @quote.group(usage="quote search [your search query])", invoke_without_command=True)
+    @quote.group(usage="<message text to search for>)", invoke_without_command=True)
     async def search(self, ctx, *, qry: commands.clean_content):
         """ Search for a quote by quote text """
         await self._get_quote(ctx, qry=qry, all_guilds=False)
 
-    @search.command(name="all", aliases=['global'])
+    @search.command(name="all", usage="<message text to search for>", aliases=['global'])
     async def _all(self, ctx, *, qry: commands.clean_content):
         """ Search for a quote **from any server** by quote text """
         await self._get_quote(ctx, qry=qry, all_guilds=True)
 
-    @quote.group(invoke_without_command=True)
+    @quote.group(invoke_without_command=True, usage='[@user]')
     async def last(self, ctx, users: commands.Greedy[discord.User]):
         """ Gets the last quoted message (optionally from user) """
         await self._get_quote(ctx, users=users, random=False)
@@ -181,15 +194,16 @@ class QuoteDB(commands.Cog):
         await self._get_quote(ctx, users=users, random=False, all_guilds=True)
 
     # Delete quotes
-    @quote.command(name="del", aliases=['remove'], usage="quote delete <quote id number>  # Delete quote with that id")
+    @quote.command(name="del", aliases=['remove'], usage="<quote id number to delete>")
     @commands.has_permissions(manage_messages=True)
     @commands.guild_only()
     async def _del(self, ctx, quote_id: int):
         """ Delete quote by quote ID """
         connection = await self.bot.db.acquire()
         r = await connection.fetchrow(f"SELECT * FROM quotes WHERE quote_id = $1", quote_id)
+        await self.bot.db.release(connection)
+        
         if r is None:
-            await self.bot.db.release(connection)
             return await ctx.send(f"No quote found with ID #{quote_id}")
 
         if r["guild_id"] != ctx.guild.id:
@@ -217,12 +231,15 @@ class QuoteDB(commands.Cog):
             await ctx.send(f"Quote {quote_id} was not deleted", delete_after=5)
 
         elif res.emoji.startswith("👍"):
-            await connection.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
+                await connection.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
+            await self.bot.db.release(connection)
             await ctx.send(f"Quote #{quote_id} has been deleted.")
-        await self.bot.db.release(connection)
+        
 
     # Quote Stats.
-    @quote.command(usage="quote stats <#channel or @user>")
+    @quote.command(usage="<#channel or @user>")
     async def stats(self, ctx, target: typing.Union[discord.Member, discord.TextChannel] = None):
         """ See quote stats for a user or channel """
         e = discord.Embed(color=discord.Color.blurple())
