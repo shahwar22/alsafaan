@@ -201,7 +201,7 @@ def ruin(image):
 async def get_faces(ctx, target):
     """ Retrieve face features from Project Oxford """
     if isinstance(target, discord.Member):
-        target = target.avatar_url_as(format="png")
+        target = str(target.avatar_url_as(format="png"))
     elif target is None:
         for i in ctx.message.attachments:
             if i.height is None:  # Not an image.
@@ -231,7 +231,7 @@ async def get_faces(ctx, target):
             else:
                 await ctx.send(
                     f"HTTP Error {resp.status} recieved accessing project oxford's facial recognition API.")
-            return None, None
+            return None, None, None
         response = await resp.json()
     
     # Get target image as file
@@ -251,7 +251,7 @@ class Images(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    @commands.command()
+    @commands.command(usage="")
     @commands.cooldown(2, 90, BucketType.user)
     async def tinder(self, ctx):
         """ Try to Find your next date. """
@@ -284,7 +284,7 @@ class Images(commands.Cog):
             base_embed.description = caption
             await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
 
-    @commands.command(aliases=["bob", "ross"], usage= 'bobross <@user, link to image, or upload a file>')
+    @commands.command(aliases=["bob", "ross"], usage='<@user, link to image, or upload a file>')
     async def bobross(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """ Bob Rossify """
         with ctx.typing():
@@ -310,7 +310,7 @@ class Images(commands.Cog):
                 pass
 
     @commands.is_nsfw()
-    @commands.command(usage='knob <@user, link to image, or upload a file>')
+    @commands.command(usage='<@user, link to image, or upload a file>')
     # TODO: Open mouth.
     async def knob(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """ Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
@@ -337,7 +337,7 @@ class Images(commands.Cog):
             except discord.Forbidden:
                 pass
 
-    @commands.command(usage='eyes <@user, link to image, or upload a file>')
+    @commands.command(usage='<@user, link to image, or upload a file>')
     async def eyes(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """ Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         with ctx.typing():
@@ -361,7 +361,7 @@ class Images(commands.Cog):
             except (discord.Forbidden, discord.NotFound):
                 pass
 
-    @commands.command(usage='tard <@user> <quote>')
+    @commands.command(usage='<@user> <quote>')
     async def tard(self, ctx, target: discord.Member, *, quote):
         """ Generate an "oh no, it's retarded" image with a user's avatar and a quote """
         with ctx.typing():
@@ -382,7 +382,7 @@ class Images(commands.Cog):
         if isinstance(exc, commands.BadArgument):
             return await ctx.send("🚫 Bad argument provided: Make sure you're pinging a user or using their ID")
 
-    @commands.command(aliases=["localman", "local", "ruin"], usage="ruins @member")
+    @commands.command(aliases=["localman", "local", "ruin"], usage="[@member or leave blank to use yourself.]")
     async def ruins(self, ctx, *, user: discord.User = None):
         """ Local man ruins everything """
         with ctx.typing():
@@ -425,33 +425,8 @@ class Images(commands.Cog):
     async def goala(self, ctx):
         """ Party on Garth """
         await ctx.send(file=discord.File('Images/goala.gif'))
-    
-    @commands.command()
-    @commands.cooldown(1, 120, BucketType.user)
-    async def cat(self, ctx):
-        """ Adopt a random cat """
-        await ctx.trigger_typing()
-        retries = 0
-        while retries < 3:
-            async with self.bot.session.get("http://random.cat/meow") as resp:
-                if resp.status != 200:
-                    await asyncio.sleep(1)
-                    retries += 1
-                    continue
-                else:
-                    cat = await resp.json()
-                    async with self.bot.session.get(cat["file"]) as new_resp:
-                        cat = await new_resp.content.read()
-                        fp = discord.File(BytesIO(cat), filename="cat.png")
-                        try:
-                            return await ctx.author.send("😺 Here's your cat:", file=fp)
-                        except discord.Forbidden:
-                            return await ctx.send(
-                                "Tried to send you your cat, but I can't send you messages."
-                                " Guess he's not getting adopted then.")
-        await ctx.send("😿 Sorry, no cats want to be adopted by you.")
         
-    @commands.command()
+    @commands.command(usage="<an emoji>")
     async def emoji(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
         """ View a bigger version of an Emoji """
         e = discord.Embed()
