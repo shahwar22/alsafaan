@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 from collections import Counter
 import datetime
-import traceback
 
 
 class GlobalChecks(commands.Cog):
@@ -16,7 +15,13 @@ class GlobalChecks(commands.Cog):
         return ctx.author.id not in self.bot.ignored
     
     def disabled_commands(self, ctx):
+        if ctx.author.permissions_in(ctx.channel).manage_channels:
+            return True
         try:
+            if ctx.command.parent is not None:
+                if ctx.command.parent.name in self.bot.disabled_cache[ctx.guild.id]:
+                    raise commands.DisabledCommand
+            
             if ctx.command.name in self.bot.disabled_cache[ctx.guild.id]:
                 raise commands.DisabledCommand
             else:
@@ -106,7 +111,10 @@ class Reactions(commands.Cog):
                     await m.channel.send(rm)
         # Emoji reactions
         if "toon toon" in c:
-            await m.channel.send("**BLACK AND WHITE ARMY**")
+            try:
+                await m.channel.send("**BLACK AND WHITE ARMY**")
+            except discord.Forbidden:
+                pass
 
 
 def setup(bot):
