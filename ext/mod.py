@@ -1,10 +1,9 @@
 import asyncio
 from collections import defaultdict
-from urllib.parse import unquote
-from copy import deepcopy
 import datetime
 import typing
 
+from ext.utils import embed_utils
 from ext.utils.timed_events import parse_time, spool_reminder
 from ext.utils.embed_utils import paginate
 from discord.ext import commands
@@ -32,6 +31,8 @@ class Mod(commands.Cog):
         self.bot.prefix_cache = defaultdict(list)
         self.bot.loop.create_task(self.update_prefixes())
         self.bot.command_prefix = get_prefix
+        if not hasattr(self.bot, "lockdown_cache"):
+            self.bot.lockdown_cache = {}c
     
     def me_or_mod(self):
         def predicate(ctx):
@@ -43,6 +44,8 @@ class Mod(commands.Cog):
     async def on_message(self, message):
         ctx = await self.bot.get_context(message)
         if ctx.message.content == ctx.me.mention:
+            if message.guild is None:
+                return await ctx.send(ctx.author.mention)
             await ctx.send(f"Forgot your prefixes? They're ```css"
                            f"\n{', '.join(self.bot.prefix_cache[message.guild.id])}```")
     
@@ -82,7 +85,7 @@ class Mod(commands.Cog):
             self.bot.prefix_cache[guild] = pref_list
             
     async def update_cache(self):
-        self.bot.disabled_cache = {}
+        self.bot.disabled_cache = defaultdict(list)
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM disabled_commands""")
         await self.bot.db.release(connection)
@@ -119,7 +122,6 @@ class Mod(commands.Cog):
             await ctx.send("Okay, I'll stick around a bit longer then.")
             await m.remove_reaction('✅', ctx.me)
 
-        
     @commands.command(aliases=['nick'])
     @commands.has_permissions(manage_nicknames=True)
     async def name(self, ctx, *, new_name: str):
@@ -134,10 +136,9 @@ class Mod(commands.Cog):
             destination = ctx.channel
         try:
             await ctx.message.delete()
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.NotFound):
             pass
         await destination.send(msg)
-
     
     @commands.command(usage="topic <New Channel Topic>")
     @commands.has_permissions(manage_channels=True)
@@ -191,6 +192,9 @@ class Mod(commands.Cog):
     async def kick(self, ctx, members: commands.Greedy[discord.Member], *, reason="unspecified reason."):
         """ Kicks the user from the server """
         replies = []
+        if not members:
+            return
+        
         for i in members:
             try:
                 await i.kick(reason=f"{ctx.author.name}: {reason}")
@@ -202,38 +206,47 @@ class Mod(commands.Cog):
                 replies.append(f"✅ {i.mention} was kicked by {ctx.author} for: \"{reason}\".")
         await ctx.send("\n".join(replies))
     
-    @commands.command(usage="ban <@member1 user_id2 @member3 @member4> "
+    @commands.command(usage="ban <@member1 [user_id2, @member3, @member4]> "
                             "<(Optional: Days to delete messages from)> <(Optional: reason)>",
                       aliases=["hackban"])
     @commands.has_permissions(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def ban(self, ctx, targets: commands.Greedy[typing.Union[discord.Member, int]],
-                  delete_days: typing.Optional[int] = 0, *, reason="Not specified"):
+                  delete_days: typing.Optional[int] = 1, *, reason="Not specified"):
         """ Bans a list of members (or User IDs) from the server, deletes all messages for the last x days """
         replies = []
         for i in targets:
             if isinstance(i, discord.Member):
                 try:
                     await i.ban(reason=f"{ctx.author.name}: {reason}", delete_message_days=delete_days)
+                    outstr = f"☠ {i.mention} was banned by {ctx.author} for: \"{reason}\""
+                    if delete_days:
+                        outstr += f", messages from last {delete_days} day(s) were deleted."
+                    replies.append(outstr)
                 except discord.Forbidden:
                     replies.append(f"⛔ Sorry, I can't ban {i.mention}.")
                 except discord.HTTPException:
                     replies.append(f"⚠ Banning failed for {i.mention}.")
-                else:
-                    replies.append(f"☠ {i.mention} was banned by {ctx.author} for: \"{reason}\".")
+                except Exception as e:
+                    replies.append(f"⚠ Banning failed for {i.mention}.")
+                    print("Failed while banning member\n", e)
             else:
                 try:
                     await self.bot.http.ban(i, ctx.message.guild.id)
                     target = await self.bot.fetch_user(i)
-                    replies.append(f"☠ UserID {i} {target} was banned")
+                    outstr = f"☠ UserID {i} {target} was banned for reason: \"{reason}\""
+                    if delete_days:
+                        outstr += f", messages from last {delete_days} day(s) were deleted."
+                    replies.append(outstr)
                 except discord.HTTPException:
                     replies.append(f"⚠ Banning failed for UserID# {i}.")
                 except Exception as e:
-                    print(e)
-                    print("Failed while banning ID#.")
-        await ctx.send("\n".join(replies))
+                    replies.append(f"⚠ Banning failed for UserID# {i}.")
+                    print("Failed while banning ID#.\n", e)
+        if replies:
+            await ctx.send("\n".join(replies))
     
-    @commands.command(usage= "unban <UserID of member: e.g. 13231232131> ")
+    @commands.command(usage="unban <UserID of member: e.g. 13231232131> ")
     @commands.has_permissions(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
     async def unban(self, ctx, *, who):
@@ -282,31 +295,18 @@ class Mod(commands.Cog):
     @commands.bot_has_permissions(view_audit_log=True)
     async def banlist(self, ctx):
         """ Show the banlist for the server """
-        banlist = await ctx.guild.bans()
-        banpages = []
-        banembeds = []
-        if len(banlist) == 0:
-            banpages = "☠ No bans found!"
-        else:
-            this_page = ""
-            for x in banlist:
-                a = x.user.name
-                b = x.user.discriminator
-                if len(unquote("\💀 {a}#{b}: {x.reason}\n")) + len(this_page) > 1200:
-                    banpages.append(this_page)
-                    this_page = ""
-                this_page += unquote(f"\💀 {a}#{b}: {x.reason}\n")
-            banpages.append(this_page)
-            
-        for i in banpages:
-            e = discord.Embed(color=0x111)
-            n = f"≡ {ctx.guild.name} discord ban list"
-            e.set_author(name=n, icon_url=ctx.guild.icon_url)
-            e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
-            e.title = "User (Reason)"
-            e.description = i
-            banembeds.append(deepcopy(e))
-        await paginate(ctx, banpages)
+        ban_lines = [f"\💀 {x.user.name}#{x.user.discriminator}: {x.reason}\n" for x in await ctx.guild.bans()]
+        if not ban_lines:
+            ban_lines = ["☠ No bans found!"]
+
+        e = discord.Embed(color=0x111)
+        n = f"≡ {ctx.guild.name} discord ban list"
+        e.set_author(name=n, icon_url=ctx.guild.icon_url)
+        e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
+        e.title = "User (Reason)"
+
+        ban_embeds = embed_utils.rows_to_embeds(e, ban_lines)
+        await paginate(ctx, ban_embeds)
     
     ### Mutes & Blocks
     @commands.command(usage="Block <Optional: #channel> <@member1 @member2> <Optional: reason>")
@@ -340,6 +340,9 @@ class Mod(commands.Cog):
     @commands.command(usage="mute <@user1 @user2 @user3> <reason>")
     async def mute(self, ctx, members: commands.Greedy[discord.Member], *, reason="No reason given."):
         """ Prevent member(s) from talking on your server. """
+        if not members: 
+            return await ctx.send('No user specified.se')
+        
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:
             muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
@@ -364,11 +367,13 @@ class Mod(commands.Cog):
         await ctx.send("\n".join([i for i in [muted, not_muted] if i]))
         
                 
-    @commands.command()
+    @commands.command(usage="<@user @user2>")
     @commands.has_permissions(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def unmute(self, ctx, members: commands.Greedy[discord.Member]):
         """ Allow members to talk again. """
+        if not members:
+            return await ctx.send('No members to unmute specified')
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:
             return await ctx.send(f"No 'muted' role found on {ctx.guild.name}")
@@ -407,10 +412,10 @@ class Mod(commands.Cog):
         except discord.NotFound:
             await ctx.send('⚠ An error occurred, someone else deleted those messages before I did.', delete_after=5)
     
-    @commands.group(invoke_without_command=True, usage='prefix: List all prefixes for the server')
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def prefix(self, ctx):
-        """ Add, remove, or List bot prefixes for this server."""
+        """ Add, remove, or List bot prefixes for this server to use them instead of the default .tb """
         try:
             prefixes = self.bot.prefix_cache[ctx.guild.id]
         except KeyError:
@@ -426,6 +431,7 @@ class Mod(commands.Cog):
     @prefix.command(name="add", aliases=["set"])
     @commands.has_permissions(manage_guild=True)
     async def pref_add(self, ctx, prefix):
+        """ Add a prefix to your server's list of bot prefixes """
         try:
             prefixes = self.bot.prefix_cache[ctx.guild.id]
         except KeyError:
@@ -447,6 +453,7 @@ class Mod(commands.Cog):
     @prefix.command(name="remove", aliases=["delete"])
     @commands.has_permissions(manage_guild=True)
     async def pref_del(self, ctx, prefix):
+        """ Remove a prefix from your server's list of bot prefixes """
         try:
             prefixes = self.bot.prefix_cache[ctx.guild.id]
         except KeyError:
@@ -464,7 +471,13 @@ class Mod(commands.Cog):
         prefixes = ', '.join([f"'{i}'" for i in self.bot.prefix_cache[ctx.guild.id]])
         await ctx.send(f"Current Command prefixes for this server: ```{prefixes}```")
     
-    @commands.command(aliases=["enable"], usage="<'disable' or 'enable'> <command name>")
+    @commands.command(usage="<command name to enable>")
+    async def enable(self, ctx, command: str):
+        """Re-enables a disabled command for this server"""
+        disable = self.bot.get_command('disable')
+        await ctx.invoke(disable, command)
+    
+    @commands.command(usage="<command name to disable>")
     @commands.has_permissions(manage_guild=True)
     async def disable(self, ctx, command: str):
         """Disables a command for this server."""
@@ -482,6 +495,10 @@ class Mod(commands.Cog):
                 await self.bot.db.release(connection)
                 await self.update_cache()
                 return await ctx.send(f"The {command} command was re-enabled for {ctx.guild.name}")
+        elif ctx.invoked_with == "disable":
+            if command in self.bot.disabled_cache[ctx.guild.id]:
+                return await ctx.send(f"The {command} command is already disabled on this server.")
+        
         
         if command in ('disable', 'enable'):
             return await ctx.send('Cannot disable the disable command.')
@@ -620,6 +637,50 @@ class Mod(commands.Cog):
         e.colour = 0x00ffff
         e.timestamp = remind_at
         await ctx.send(embed=e)
+        
+    @commands.command()
+    @commands.has_permissions(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def lockdown(self, ctx, top_role:typing.Optional[discord.Role]):
+        """ Anti-raid command: Stop un-roled people sending messages in the discord.
+        Mention a role to stop people below that role from sending messages as the cutoff. """
+        if not top_role:
+            top_role = ctx.guild.default_role
+        
+        target_position = top_role.position
+        
+        if ctx.author.top_role.position < target_position:
+            target_position = ctx.author.top_role.position - 1
+        
+        new_perms = discord.Permissions(send_messages=False)
+        count = 0
+        self.bot.lockdown_cache[ctx.guild.id] = []
+        for i in ctx.guild.roles:
+            if not i.permissions.send_messages:  # if role does not have send message perm override set, skip.
+                continue
+            
+            if i.position <= target_position:  # If we are below the target position
+                self.bot.lockdown_cache[ctx.guild.id].append((i.id, i.permissions))  # Save id, permissions tuple.
+                await i.edit(permissions=new_perms, reason="Raid lockdown.")
+                count +=1
+                
+        await ctx.send(f"{count} roles no longer have send_messages permissions.")
+
+    @commands.command(usage="")
+    @commands.has_permissions(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True)
+    async def unlock(self, ctx):
+        """ Unlock a previously set lockdown. """
+        count = 0
+        for role in self.bot.lockdown_cache[ctx.guild.id]:
+            # Role tuple is role id, permissions.
+            r = ctx.guild.get_role(role[0])
+            await r.edit(permissions=role[1], reason="Unlock raid.")
+            count += 1
+        
+        self.bot.lockdown_cache.pop(ctx.guild.id)  # dump from cache, no longer needed.
+        await ctx.send(f'Restored send_messages permissions to {count} roles')
+    
 
 def setup(bot):
     bot.add_cog(Mod(bot))
