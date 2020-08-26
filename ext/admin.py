@@ -7,6 +7,8 @@ import inspect
 import datetime
 from collections import Counter
 
+from discord.ext.commands import ExtensionNotLoaded
+
 from ext.utils import codeblocks
 
 
@@ -51,6 +53,8 @@ class Admin(commands.Cog):
         """Reloads a module."""
         try:
             self.bot.reload_extension(module)
+        except ExtensionNotLoaded:
+            self.bot.load_extension(module)
         except Exception as e:
             await ctx.send(codeblocks.error_to_codeblock(e))
         else:
@@ -152,7 +156,7 @@ class Admin(commands.Cog):
         """ Check ID for shared servers """
         matches = []
         for i in self.bot.guilds:
-            if i.get_member(userid) is not None:
+            if i.get_member(user_id) is not None:
                 matches.append(f"{i.name} ({i.id})")
 
         e = discord.Embed(color=0x00ff00)
@@ -160,8 +164,7 @@ class Admin(commands.Cog):
             e.description = f"User id {user_id} not found on shared servers."
             return await ctx.send(embed=e)
 
-        user = self.bot.get_user(id)
-        e.title = f"Shared servers for {user} (ID: {user_id})"
+        e.title = f"Shared servers for User ID: {user_id}"
         e.description = "\n".join(matches)
         await ctx.send(embed=e)
 
