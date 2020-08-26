@@ -26,8 +26,10 @@ class Reminders(commands.Cog):
     async def spool_initial(self):
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM reminders""")
-        for r in records:
-            self.bot.reminders.append(self.bot.loop.create_task(timed_events.spool_reminder(self.bot, r)))
+        async with connection.transaction():
+            for r in records:
+                self.bot.reminders.append(self.bot.loop.create_task(timed_events.spool_reminder(self.bot, r)))
+        await self.bot.db.release(connection)
     
     @commands.group(aliases=['reminder', 'remind', 'remindme'],
                     usage="<Amount of time> <Reminder message>",
@@ -41,12 +43,13 @@ class Reminders(commands.Cog):
         human_time = datetime.datetime.strftime(remind_at, "%a %d %b at %H:%M:%S")
         
         connection = await self.bot.db.acquire()
-        record = await connection.fetchrow(""" INSERT INTO reminders
-        (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""",
-                                           ctx.message.id, ctx.channel.id, ctx.guild.id, message,
-                                           ctx.message.created_at,
-                                           remind_at, ctx.author.id)
+        async with connection.transaction():
+            record = await connection.fetchrow(""" INSERT INTO reminders
+            (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""",
+                                               ctx.message.id, ctx.channel.id, ctx.guild.id, message,
+                                               ctx.message.created_at,
+                                               remind_at, ctx.author.id)
         await self.bot.db.release(connection)
         self.bot.reminders.append(self.bot.loop.create_task(timed_events.spool_reminder(self.bot, record)))
         
