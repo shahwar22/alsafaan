@@ -122,8 +122,7 @@ class Twitter(commands.Cog):
                         elif i.type == "video":
                             videos.append(i.video_info.variants[1].url)
                         else:
-                            print("Unrecognised TWITTER MEDIA TYPE")
-                            print(i)
+                            print("Unrecognised TWITTER MEDIA TYPE", i)
                 
                 # Fuck this nesting kthx.
                 if hasattr(t, "extended_entities") and hasattr(t.extended_entities, "media"):

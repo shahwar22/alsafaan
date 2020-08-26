@@ -72,15 +72,15 @@ class TransferLookup(commands.Cog):
                 "func": self._team,
                 "querystr": "Verein_page",
                 "parser": transfer_tools.parse_clubs,
-                "outfunc": self.get_rumours
+                "outfunc": transfer_tools.get_rumours
             }
         }
 
     # Base lookup - No Sub-command invoked.
-    @commands.group(invoke_without_command=True)
-    async def lookup(self, ctx, *, target: commands.clean_content):
+    @commands.group(invoke_without_command=True, usage="<Who you want to search for>")
+    async def lookup(self, ctx, *, query: commands.clean_content):
         """ Perform a database lookup on transfermarkt """
-        p = {"query": target}  # html encode.
+        p = {"query": query}  # html encode.
         async with self.bot.session.post(f"http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche",
                                          params=p) as resp:
             if resp.status != 200:
@@ -105,12 +105,12 @@ class TransferLookup(commands.Cog):
                     count += 1
 
         if not results:
-            return await ctx.send(f":no_entry_sign: No results for {target}")
+            return await ctx.send(f":no_entry_sign: No results for {query}")
         sortedlist = [i[0] for i in sorted(results.values())]
 
         # If only one category has results, invoke that search.
         if len(sortedlist) == 1:
-            return await ctx.invoke(results[0][1], qry=target)
+            return await ctx.invoke(results[0][1], qry=query)
 
         e = discord.Embed(url=str(resp.url))
         e.title = "Transfermarkt lookup"
@@ -141,7 +141,7 @@ class TransferLookup(commands.Cog):
 
         # invoke appropriate subcommand for category selection.
         await m.delete()
-        return await ctx.invoke(results[int(msg.content)][1], qry=target)
+        return await ctx.invoke(results[int(msg.content)][1], qry=query)
 
     @lookup.command(name="player")
     async def _player(self, ctx, *, qry: commands.clean_content):
@@ -176,9 +176,9 @@ class TransferLookup(commands.Cog):
     @lookup.command(name="agent")
     async def _agent(self, ctx, *, qry: commands.clean_content):
         """ Lookup an agent on transfermarkt """
-        await transfer_tools.search(ctx, qry, "Agents")
+        await transfer_tools.search(ctx, qry, "agent")
 
-    @commands.command(aliases=["loans"], usage="transfers <team to search for>")
+    @commands.command(aliases=["loans"], usage="<team to search for>")
     async def transfers(self, ctx, *, qry: commands.clean_content):
         """ Get this season's transfers for a team on transfermarkt """
         await transfer_tools.search(ctx, qry, "Transfers", special=True)
@@ -246,9 +246,10 @@ class TransferLookup(commands.Cog):
 
         def write_field(title, input_list):
             output = ""
-            for item in input_list:
+            for item in input_list.copy():
                 if len(item) + len(output) < 1009:
-                    output += input_list.pop(item)
+                    output += item
+                    input_list.remove(item)
                 else:
                     output += f"And {len(input_list)} more..."
                     break
@@ -256,52 +257,6 @@ class TransferLookup(commands.Cog):
 
         for x, y in [("Players in", inlist), ("Loans In", inloans), ("Players out", outlist), ("Loans Out", outloans)]:
             write_field(x, y) if y else ""
-
-        await ctx.send(embed=e)
-
-    async def get_rumours(self, ctx, e, target):
-        e.description = ""
-        target = target.replace('startseite', 'geruechte')
-        async with self.bot.session.get(f"{target}") as resp:
-            if resp.status != 200:
-                return await ctx.send(f"Error {resp.status} connecting to {resp.url}")
-            tree = html.fromstring(await resp.text())
-            e.url = str(resp.url)
-        e.set_author(name=tree.xpath('.//head/title[1]/text()')[0], url=str(resp.url))
-        e.set_footer(text=discord.Embed.Empty)
-
-        rumours = tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0]
-        rumours = rumours.xpath('.//tbody/tr')
-        rumorlist = []
-        for i in rumours:
-            pname = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-            if not pname:
-                continue
-            player_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-            player_link = f"http://transfermarkt.co.uk{player_link}"
-            ppos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
-            mv = "".join(i.xpath('.//td[6]//text()')).strip()
-            flag = transfer_tools.get_flag(i.xpath('.//td[3]/img/@title')[0])
-            age = "".join(i.xpath('./td[4]/text()')).strip()
-            team = "".join(i.xpath('.//td[5]//img/@alt'))
-            tlink = "".join(i.xpath('.//td[5]//img/@href'))
-            odds = "".join(i.xpath('./td[8]//text()')).strip().replace('&nbsp', '')
-            source = "".join(i.xpath('./td[7]//@href'))
-            odds = f"[{odds}likely]({source})" if odds != "-" else f"[rumor info]({source})"
-            rumorlist.append(f"{flag} **[{pname}]({player_link})** {age}, {ppos} ({mv})\n*[{team}]({tlink})*, {odds}\n")
-
-        output = ""
-        count = 0
-        if not rumorlist:
-            output = "No rumours about new signings found."
-        for i in rumorlist:
-            if len(i) + len(output) < 1985:
-                output += i
-            else:
-                output += f"And {len(rumorlist) - count} more..."
-                break
-            count += 1
-        e.description = output
 
         await ctx.send(embed=e)
 
