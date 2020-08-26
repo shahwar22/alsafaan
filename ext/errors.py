@@ -1,25 +1,17 @@
 from discord.ext import commands
 import traceback
 import discord
+from discord.ext.commands import DisabledCommand
 
 
 class Errors(commands.Cog):
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        if not ctx.me.permissions_in(ctx.channel).send_messages:
-            try:
-                return await ctx.message.add_reaction('⛔')
-            except discord.Forbidden:
-                return
-        
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return  # Fail silently.
-        
-        elif isinstance(error, (discord.Forbidden, commands.DisabledCommand, commands.MissingPermissions)):
-            if isinstance(error, discord.Forbidden):
-                print(f"Discord.Forbidden Error, check {ctx.command} bot_has_permissions  {ctx.message.content}\n"
-                      f"{ctx.author}) in {ctx.channel.name} on {ctx.guild.name}")
-            return  # fail silently
+
+        if isinstance(error, DisabledCommand):
+            return await ctx.message.add_reaction('🚫')
 
         # Embed errors.
         e = discord.Embed()
@@ -27,10 +19,7 @@ class Errors(commands.Cog):
         e.title = f"Error: {error.__class__.__name__}"
         e.set_thumbnail(url=str(ctx.me.avatar_url))
 
-        if ctx.command.usage is None:
-            useline = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
-        else:
-            useline = f"{ctx.prefix}{ctx.command.usage}"
+        useline = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
         e.add_field(name="Command Usage Example", value=useline)
 
         location = "a DM" if ctx.guild is None else f"{ctx.guild.name} ({ctx.guild.id})"
@@ -72,12 +61,22 @@ class Errors(commands.Cog):
             if isinstance(cie, (NotImplementedError, AssertionError)):
                 e.title = "Sorry."
                 e.description = "".join(cie.args)
-                return await ctx.send(embed=e)
-                
+                try:
+                    return await ctx.send(embed=e)
+                except discord.Forbidden:
+                    return await ctx.message.add_reaction('⛔')
+            
+            elif isinstance(cie, discord.Forbidden):
+                try:
+                    return await ctx.message.add_reaction('⛔')
+                except (discord.errors.Forbidden, discord.NotFound):
+                    return
+            
             traceback.print_tb(cie.__traceback__)
             
+            print(ctx.author.name, ctx.author.id, f"#{ctx.channel.name}", location, ctx.message.content)
             print(f'{cie.__class__.__name__}: {cie}')
-            print(location, ctx.message.content)
+
             e.title = error.original.__class__.__name__
             tb_to_code = traceback.format_exception(type(cie), cie, cie.__traceback__)
             tb_to_code = ''.join(tb_to_code)
