@@ -5,11 +5,11 @@ import traceback
 def time_to_colour(timestamp: datetime.datetime) -> str:
     time_delta = datetime.datetime.now() - timestamp
     if time_delta.total_seconds() < 600:  # 10 minutes
-        coloured_time = f"```glsl\n[{timestamp}]```"  # orange
+        coloured_time = f"```css\n[{timestamp}]```"  # red
     elif time_delta.total_seconds() < 1440:  # 1 day
         coloured_time = f"```fix\n[{timestamp}]```"  # yellow
     elif time_delta.total_seconds() < 604800:  # 1 week
-        coloured_time = f"```brainfuck\n[{timestamp}]```"  # grey
+        coloured_time = f"```glsl\n[{timestamp}]```"  # grey
     elif time_delta.total_seconds() < 2419200:  # 1 month
         coloured_time = f"```yaml\n[{timestamp}]```"  # cyan
     elif time_delta.total_seconds() < 15780000:  # 6 months
