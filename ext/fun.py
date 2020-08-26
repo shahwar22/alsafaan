@@ -91,14 +91,21 @@ class Fun(commands.Cog):
         """ Would you rather... """
         async def fetch():
             async with self.bot.session.get("http://www.rrrather.com/botapi") as response:
+                if response.status != "200":
+                    return int(response.status)
                 response = await response.json()
                 return response
         
         # Reduce dupes.
         cache = []
         tries = 0
-        while True:
+        
+        resp = None
+        
+        while tries < 10:
             resp = await fetch()
+            if isinstance(resp, int):
+                return await ctx.send(f"{resp} error, the wyr machine is broken :(")
             # Skip stupid shit.
             if resp["choicea"] == resp["choiceb"]:
                 continue
@@ -108,6 +115,9 @@ class Fun(commands.Cog):
             else:
                 cache += resp
                 break
+        
+        if resp is None:
+            return
         
         async def write(response):
             title = response["title"].strip().capitalize().rstrip('.?,:')
@@ -145,12 +155,12 @@ class Fun(commands.Cog):
                     pass
                 await m.edit(content=await write(resp))
     
-    @commands.command()
+    @commands.command(hidden=True)
     @commands.is_owner()
     async def secrettory(self, ctx):
         await ctx.send(f"The secret tory is {random.choice(ctx.guild.members).mention}")
     
-    @commands.command(aliases=["choice", "pick", "select"])
+    @commands.command(aliases=["choice", "pick", "select"], usage="Option 1, Option 2, Option 3 ...")
     async def choose(self, ctx, *, choices):
         """ Make a decision for me (seperate choices with commas)"""
         choices = discord.utils.escape_mentions(choices)
