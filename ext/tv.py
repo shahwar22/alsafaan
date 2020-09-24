@@ -1,10 +1,8 @@
-import asyncio
 import discord
 from discord.ext import commands
 import datetime
 
 import json
-import aiohttp
 from lxml import html
 
 from ext.utils import embed_utils
@@ -38,7 +36,7 @@ class Tv(commands.Cog):
 			await ctx.send(f"Could not find a matching team/league for {team}.")
 			return None
 		
-		matching_teams = {i for i in self.bot.tv if team.lower() in i.lower()}
+		matching_teams = [i for i in self.bot.tv if team.lower() in i.lower()]
 		
 		index = await embed_utils.page_selector(ctx, matching_teams)
 		team = matching_teams[index]
@@ -50,7 +48,7 @@ class Tv(commands.Cog):
 	async def tv(self, ctx, *, team: commands.clean_content = None):
 		""" Lookup next televised games for a team """
 		async with ctx.typing():
-			em = await self._pick_team(ctx, team)
+			em = await self._pick_team(ctx, str(team))
 			
 			if em is None:
 				return
@@ -95,7 +93,9 @@ class Tv(commands.Cog):
 							time = datetime.datetime.strftime(time, '%H:%M')
 							dt = f"{date} {time}"
 						except ValueError as e:
+							print("ValueError in tv", e)
 							dt = ""
+							
 					elif not team:
 						dt = i.xpath('.//td[@class="timecell"]//span/text()')[-1].strip()
 						if dt == "FT":
