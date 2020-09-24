@@ -1,3 +1,4 @@
+import functools
 from collections import defaultdict
 from copy import deepcopy
 import asyncio
@@ -31,19 +32,19 @@ class Fixtures(commands.Cog):
 
     # Master picker.
     async def _search(self, ctx, qry, mode=None) -> str or None:
-        # Fucking idiot proofing.
-        if qry is not None:
-            qry = qry.strip('<>')
-        
+        # Handle stupidity
         if qry is None:
             err = "Please specify a search query."
             if ctx.guild is not None:
                 result = await self._fetch_default(ctx, mode)
                 if result is not None:
                     if mode == "team":
-                        sr = football.Team(override=result)
+                        team_id = result.split('/')[-1]
+                        ftp = functools.partial(football.Team.by_id, team_id, driver=self.bot.fixture_driver)
+                        sr = await self.bot.loop.run_in_executor(None, ftp)
                     else:
-                        sr = football.Competition(override=result)
+                        ftp = functools.partial(football.Competition.by_link, result, driver=self.bot.fixture_driver)
+                        sr = await self.bot.loop.run_in_executor(None, ftp)
                     return sr
             else:
                 err += f"\nA default team or league can be set by moderators using {ctx.prefix}default)"
@@ -152,7 +153,7 @@ class Fixtures(commands.Cog):
         else:
             return await ctx.send(f'Your commands will no longer use a default {mode}')
     
-    @commands.command(usage="[Optional: league or team to search for]")
+    @commands.command(usage="[league or team to search for or leave blank to use server's default setting]")
     async def table(self, ctx, *, qry: commands.clean_content = None):
         """ Get table for a league """
         async with ctx.typing():
@@ -174,6 +175,7 @@ class Fixtures(commands.Cog):
                 async with sl_lock:
                     choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver)
                 for_picking = [i.full_league for i in choices]
+                
                 embed = await fsr.base_embed
                 index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed))
                 if index is None:
@@ -224,9 +226,10 @@ class Fixtures(commands.Cog):
         Navigate pages using reactions. """
         await ctx.send('Searching...', delete_after=5)
         fsr = await self._search(ctx, qry)
+
         if fsr is None:
             return  # Handled in _search.
-        
+
         async with sl_lock:
             fx = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/fixtures')
         fixtures = [str(i) for i in fx]
@@ -475,7 +478,9 @@ class Fixtures(commands.Cog):
     #         embeds.append(e)
     #     await embed_utils.paginate(ctx, embeds)
     
-    #TODO: replace with https://www.reddit.com/r/soccer/search?q=flair%3Amedia+OR+flair%3AMirror&restrict_sr=on&sort=hot&t=day&feature=legacy_search#res-hide-options
+    # TODO: replace with
+    #  https://www.reddit.com/r/soccer/search?q=flair%3Amedia+OR+flair%3AMirror&restrict_sr=on&sort=hot&t=day
+    #  &feature=legacy_search
 
 
 def setup(bot):
