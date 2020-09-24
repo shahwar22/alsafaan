@@ -70,7 +70,7 @@ class TransferTicker(commands.Cog):
             return
         
         skip_output = True if not self.parsed else False
-        # skip_output = False
+        # skip_output = False   
         for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):
             player_name = "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()
             
@@ -180,7 +180,7 @@ class TransferTicker(commands.Cog):
                     else:
                         await ch.send(embed=e)
                 except discord.Forbidden:
-                   pass # dumbfucks can't set a channel right.
+                    pass  # dumb fucks can't set a channel right.
                 except AttributeError:
                     print(f"AttributeError transfer-ticker {channel_id} check for channel deletion.")
     
@@ -303,10 +303,15 @@ class TransferTicker(commands.Cog):
         channels = await self._pick_channels(ctx, channels)
         
         for c in channels:
-            key = [i for i in self.cache if c.id in i][0]
+            try:
+                key = [i for i in self.cache if c.id in i][0]
+            except IndexError:
+                print(c.id, "not found in", self.cache)
+                await ctx.send(f'An error occured trying to find a whitelist for {c.id}')
+                continue
             whitelist = self.cache[key]
             if not whitelist:
-                await ctx.send(f"{c.mention} is tracking all transfers" )
+                await ctx.send(f"{c.mention} is tracking all transfers")
                 continue
             embed = discord.Embed(title=f"Whitelist items for {c.name}")
             embeds = embed_utils.rows_to_embeds(embed, [i[2] for i in whitelist])
@@ -401,7 +406,7 @@ class TransferTicker(commands.Cog):
         await self.update_cache()
         await ctx.send("\n".join(replies))
     
-    @ticker.command(name="set", aliases=["add"], usage="<#channel [, #channel2]> ['short' - use short mode for output.]")
+    @ticker.command(name="set", aliases=["add"], usage="<#channel [, #channel2]> ['short' or 'full']")
     @commands.has_permissions(manage_channels=True)
     async def _set(self, ctx, channels: commands.Greedy[discord.TextChannel], short_mode=""):
         """ Set channel(s) as a transfer ticker for this server """
