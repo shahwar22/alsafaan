@@ -192,15 +192,16 @@ class Notifications(commands.Cog):
     # Listeners
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
-        print('Joined a new guild', guild.id, guild.name)
         await asyncio.sleep(10)  # Time for other cogs to do their shit.
         await self.update_cache()
+        print(f"[Join] {guild.id} ({guild.name})")
         
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         connection = await self.bot.db.acquire()
         await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
+        print(f"[Remove] {guild.id} ({guild.name})")
 
     # TODO: Blocked
     @commands.Cog.listener()
