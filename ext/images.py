@@ -4,7 +4,6 @@ from discord.ext import commands
 from discord.ext.commands.cooldowns import BucketType
 import textwrap
 import discord
-import asyncio
 import random
 import json
 from io import BytesIO
@@ -16,16 +15,18 @@ def draw_tinder(image, av, name):
     # Base Image
     im = Image.open("Images/tinder.png").convert(mode="RGBA")
     # Prepare mask
-    msk = Image.open("Images/retardedmask.png").convert('L')
+    msk = Image.open("Images/circlemask.png").convert('L')
     msk = ImageOps.fit(msk, (185, 185))
+    
     # User Avatar
     avt = Image.open(BytesIO(av)).convert(mode="RGBA")
     avo = ImageOps.fit(avt, (185, 185))
     avo.putalpha(msk)
     im.paste(avo, box=(100, 223, 285, 408), mask=msk)
+    
     # Player
-    plt = Image.open(BytesIO(image)).convert(mode="RGBA")
-    plo = ImageOps.fit(plt, (185, 185), centering=(0.5, 0.0))
+    user_av = Image.open(BytesIO(image)).convert(mode="RGBA")
+    plo = ImageOps.fit(user_av, (185, 185), centering=(0.5, 0.0))
     plo.putalpha(msk)
     im.paste(plo, box=(313, 223, 498, 408), mask=msk)
     # Write "it's a mutual match"
@@ -136,7 +137,7 @@ def draw_tard(image, quote):
     # Open Files
     im = Image.open(BytesIO(image))
     base = Image.open("Images/retardedbase.png")
-    msk = Image.open("Images/retardedmask.png").convert('L')
+    msk = Image.open("Images/circlemask.png").convert('L')
     
     # Resize avatar, make circle, paste
     ops = ImageOps.fit(im, (250, 250))
@@ -264,7 +265,7 @@ class Images(commands.Cog):
             
             async with self.bot.session.get(str(ctx.author.avatar_url_as(format="png"))) as resp:
                 av = await resp.content.read()
-            match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"] )
+            match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
             name = match.display_name
             
             async with self.bot.session.get(str(match.avatar_url_as(format="png"))) as resp:
