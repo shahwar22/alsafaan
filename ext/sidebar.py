@@ -1,3 +1,5 @@
+import functools
+
 from ext.utils import football
 from importlib import reload
 from discord.ext import commands, tasks
@@ -44,15 +46,12 @@ class NUFCSidebar(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.reddit = praw.Reddit(**bot.credentials["Reddit"])
-        self.driver = None
         self.bot.teams = None
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)
     
     def cog_unload(self):
-        self.sidebar_loop.cancel()
-        if self.driver is not None:
-            self.driver.quit()
+        self.bot.sidebar.cancel()
     
     async def cog_check(self, ctx):
         if ctx.guild is not None:
@@ -65,9 +64,9 @@ class NUFCSidebar(commands.Cog):
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
-        await self.bot.wait_until_ready()
         connection = await self.bot.db.acquire()
-        self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
+        async with connection.transaction():
+            self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
     
     # Reddit interactions
@@ -140,11 +139,14 @@ class NUFCSidebar(commands.Cog):
                 movement = '🔻'
             else:
                 movement = "?"
-            team = p[2]
+            team = p[2].strip()
             try:
                 # Insert subreddit link from db
                 team = [i for i in self.bot.teams if i['name'] == team][0]
-                team = f"[{team['name']}]({team['subreddit']})"
+                if team:
+                    team = f"[{team['name']}]({team['subreddit']})"
+                else:
+                    print("Sidebar, error, team is ", team)
             except IndexError:
                 print(team, "Not found in", [i['name'] for i in self.bot.teams])
             played, won, drew, lost = p[3:7]
@@ -161,7 +163,10 @@ class NUFCSidebar(commands.Cog):
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         # Fetch all data
         top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
-        fsr = await football.Team.by_id(qry=qry, team_id=team_id)
+
+        fsr = await self.bot.loop.run_in_executor(None, functools.partial(football.Team.by_id, team_id,
+                                                                          driver=self.bot.fixture_driver))
+            
         fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
         results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/results")
         table = await self.table(qry)
@@ -226,12 +231,10 @@ class NUFCSidebar(commands.Cog):
             th = "\n Date | Result\n--:|:--\n"
             
             mdl = [f"{i.formatted_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
-            print("Markdown + footer = ", len(markdown + footer))
             rx_markdown = rows_to_md_table(th, mdl, max_length=10240 - len(markdown + footer))
             markdown += rx_markdown
             
         markdown += footer
-        print("Final markdown length is ", len(markdown))
         return markdown
 
     @commands.command(invoke_without_command=True)
