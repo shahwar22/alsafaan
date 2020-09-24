@@ -90,9 +90,11 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         m = await ctx.send(embed=embeds[page])
     except discord.Forbidden:
         try:
-            return await ctx.send('I need embed_links permissions to show you these results.')
+            await ctx.send('I need embed_links permissions to show you these results.')
+            return None
         except discord.Forbidden:
-            return await ctx.message.add_reaction('⛔')
+            await ctx.message.add_reaction('⛔')
+            return None
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
@@ -127,7 +129,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
             waits.append(ctx.bot.wait_for("reaction_remove", check=react_check))
     
         if not waits:
-            return  # :man_shrugging:
+            return None  # :man_shrugging:
     
         finished, pending = await asyncio.wait(waits, timeout=wait_length, return_when=asyncio.FIRST_COMPLETED)
         
@@ -142,7 +144,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 try:
                     await m.edit(embed=e, delete_after=10)
                 except discord.NotFound:
-                    pass # Why?
+                    pass  # Why?
             else:
                 try:
                     await m.clear_reactions()
