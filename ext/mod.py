@@ -32,7 +32,7 @@ class Mod(commands.Cog):
         self.bot.loop.create_task(self.update_prefixes())
         self.bot.command_prefix = get_prefix
         if not hasattr(self.bot, "lockdown_cache"):
-            self.bot.lockdown_cache = {}c
+            self.bot.lockdown_cache = {}
     
     def me_or_mod(self):
         def predicate(ctx):
@@ -63,7 +63,7 @@ class Mod(commands.Cog):
         );
         """, guild.id,  '.tb ')
         await self.bot.db.release(connection)
-        print(f"Guild Join: Default prefix set for {guild.id}")
+        print(f"[Prefix] '.tb ' set for {guild.id} ({guild.name})")
         await self.update_prefixes()
 
     async def update_prefixes(self):
@@ -530,8 +530,11 @@ class Mod(commands.Cog):
         """ Temporarily ban member(s) """
         if not members:
             return await ctx.send('🚫 You need to specify which users to ban.')
-    
-        delta = await parse_time(time.lower())
+        
+        try:
+            delta = await parse_time(time.lower())
+        except ValueError:
+            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -564,7 +567,10 @@ class Mod(commands.Cog):
     async def tempmute(self, ctx, members: commands.Greedy[discord.Member], time,
                        *, reason: commands.clean_content = None):
         """ Temporarily mute member(s) """
-        delta = await parse_time(time.lower())
+        try:
+            delta = await parse_time(time.lower())
+        except ValueError:
+            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -611,7 +617,10 @@ class Mod(commands.Cog):
         if channel is None:
             channel = ctx.channel
     
-        delta = await parse_time(time.lower())
+        try:
+            delta = await parse_time(time.lower())
+        except ValueError:
+            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -671,6 +680,9 @@ class Mod(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def unlock(self, ctx):
         """ Unlock a previously set lockdown. """
+        if not ctx.guild.id in self.bot.lockdown_cache:
+            return await ctx.send('Lockdown not in progress.')
+        
         count = 0
         for role in self.bot.lockdown_cache[ctx.guild.id]:
             # Role tuple is role id, permissions.
