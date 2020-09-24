@@ -149,13 +149,13 @@ class QuoteDB(commands.Cog):
         connection = await self.bot.db.acquire()
         
         async with connection.transaction():
-            await connection.execute(
-                """INSERT INTO quotes
-                (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
-                VALUES ($1,$2,$3,$4,$5,$6,$7)""",
-                m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
             try:
-                r = await connection.fetchrow("SELECT * FROM quotes ORDER BY quote_id DESC")
+                r = await connection.fetchrow(
+                    """INSERT INTO quotes
+                    (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7)
+                    RETURNING *""",
+                    m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
             except UniqueViolationError as e:
                 print("uniqueViolatrionError", e)
                 return await ctx.send("That quote is already in the database!")
