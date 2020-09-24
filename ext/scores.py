@@ -55,8 +55,9 @@ async def _search(ctx, qry) -> str or None:
     item_list = [i.title for i in search_results if i.participant_type_id == 0]  # Check for specifics.
     index = await embed_utils.page_selector(ctx, item_list)
 
-    if index is None:
-        return  # Timeout or abort.
+    if not index:
+        return None  # Timeout or abort.
+
     return search_results[index]
 
 
@@ -99,7 +100,7 @@ class Scores(commands.Cog, name="LiveScores"):
         # Repopulate.
         for r in records:
             if self.bot.get_channel(r['channel_id']) is None:
-                print("Warning on:", r["channel_id"])
+                print(f"SCORES potentially deleted channel: {r['channel_id']}")
                 continue
             
             key = (r["guild_id"], r["channel_id"])
@@ -308,6 +309,7 @@ class Scores(commands.Cog, name="LiveScores"):
             
             # If no Query provided we check current whitelists.
             guild_channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == ctx.guild.id]
+            guild_channels = [i for i in guild_channels if i is not None]  # fuckin deleting channel dumbfucks.
             if not channels:
                 channels = guild_channels
             if ctx.channel in guild_channels:
@@ -337,16 +339,21 @@ class Scores(commands.Cog, name="LiveScores"):
         e.set_thumbnail(url=ctx.me.avatar_url)
         e.title = f"{ctx.guild.name} Live Scores channels"
         
-        score_channels = [self.bot.get_channel(i[1]) for i in self.cache if ctx.guild.id in i]
-        if not score_channels:
+        score_ids = [i[1] for i in self.cache if ctx.guild.id in i]
+        if not score_ids:
             return await ctx.send(f"{ctx.guild.name} has no live-scores channel set.")
     
-        for i in score_channels:
-            e.title = f'{i.name} tracked leagues '
+        for i in score_ids:
+            ch = self.bot.get_channel(i)
+            if ch is None:
+                print(f'WARNING: Probably deleted channel id {i} on guild {ctx.guild.name} ({ctx.guild.id})')
+                continue
+            
+            e.title = f'{ch.name} tracked leagues '
             # Warn if they fuck up permissions.
-            if not ctx.me.permissions_in(i).send_messages:
-                e.description += "```css\n[WARNING]: I do not have send_messages permissions in that channel!"
-            leagues = self.cache[(ctx.guild.id, i.id)]
+            if not ctx.me.permissions_in(ch).send_messages:
+                e.description = "```css\n[WARNING]: I do not have send_messages permissions in that channel!"
+            leagues = self.cache[(ctx.guild.id, i)]
             embeds = embed_utils.rows_to_embeds(e, sorted(leagues))
             
             for x in embeds:
@@ -400,7 +407,7 @@ class Scores(commands.Cog, name="LiveScores"):
         await ctx.send(f"Searching for {qry}...", delete_after=5)
         res = await _search(ctx, qry)
         
-        if not res:
+        if res is None:
             return await ctx.send("Didn't find any leagues. Your channels were not modified.")
         
         connection = await self.bot.db.acquire()
@@ -471,6 +478,16 @@ class Scores(commands.Cog, name="LiveScores"):
                 await self.update_channel(c.guild.id, c.id)
         await self.bot.db.release(connection)
         await self.update_cache()
+        
+    @_remove.command(usage="<channel_id>")
+    @commands.is_owner()
+    async def admin(self, ctx, channel_id:int):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute(""" DELETE FROM scores_channels WHERE channel_id = $1""", channel_id)
+            await ctx.send(f"✅ **{channel_id}** was deleted from the scores database")
+        await self.bot.db.release(connection)
+        await self.update_cache()
     
     @_remove.command(usage="[#channel-name]")
     @commands.has_permissions(manage_channels=True)
@@ -517,19 +534,18 @@ class Scores(commands.Cog, name="LiveScores"):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
         if (channel.guild.id, channel.id) in self.cache:
-            print(f"Attempting to delete score channel for guild {channel.guild.id}, channel {channel.id}",
+            print(f"Deleting score channel for guild {channel.guild.id}, channel {channel.id}",
                   end="", flush=True)
             connection = await self.bot.db.acquire()
             async with connection.transaction():
                 await connection.execute(""" DELETE FROM scores_channels WHERE channel_id = $1 """, channel.id)
+            print("... DONE!")
             await self.bot.db.release(connection)
             await self.update_cache()
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         if guild.id in [i[0] for i in self.cache]:
-            print(f"Attempting to delete ALL score channels for guild {guild.id}",
-                  end="", flush=True)
             connection = await self.bot.db.acquire()
             async with connection.transaction():
                 await connection.execute(""" DELETE FROM scores_channels WHERE guild_id = $1 """, guild.id)
