@@ -71,6 +71,16 @@ def get_html(driver, url, xpath, **kwargs) -> str:
     else:
         fetch(driver, url, xpath, **kwargs)
         return driver.page_source
+    
+    
+def get_target_page(driver, url) -> str:
+    if driver is None:
+        driver = spawn_driver()
+        driver.get(url)
+        driver.quit()
+    else:
+        driver.get(url)
+    return driver.current_url.strip('/')
 
 
 def get_element(driver, url, xpath, **kwargs):
