@@ -662,8 +662,9 @@ class Mod(commands.Cog):
             target_position = ctx.author.top_role.position - 1
         
         new_perms = discord.Permissions(send_messages=False)
-        count = 0
+
         self.bot.lockdown_cache[ctx.guild.id] = []
+        modified_roles = []
         for i in ctx.guild.roles:
             if not i.permissions.send_messages:  # if role does not have send message perm override set, skip.
                 continue
@@ -671,9 +672,19 @@ class Mod(commands.Cog):
             if i.position <= target_position:  # If we are below the target position
                 self.bot.lockdown_cache[ctx.guild.id].append((i.id, i.permissions))  # Save id, permissions tuple.
                 await i.edit(permissions=new_perms, reason="Raid lockdown.")
-                count +=1
+                modified_roles.append(i.name)
                 
-        await ctx.send(f"{count} roles no longer have send_messages permissions.")
+        if not modified_roles:
+            return await ctx.send('⚠ No roles were modified.')
+        await ctx.send(f"⚠ {len(modified_roles)} roles no longer have send_messages permissions.")
+        output = modified_roles.pop(0)
+        for x in modified_roles:
+            if len(x + output + 10 > 2000):
+                output += f", {x}"
+            else:
+                await ctx.send(f"```{output}```")
+                output = x
+        await ctx.send(f"```{output}```")
 
     @commands.command(usage="")
     @commands.has_permissions(manage_roles=True)
