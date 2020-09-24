@@ -37,9 +37,15 @@ class Reminders(commands.Cog):
     async def timer(self, ctx, time, *, message: commands.clean_content):
         """ Remind you of something at a specified time.
             Format is remind 1d2h3m4s <note>, e.g. remind 1d3h Kickoff."""
-        delta = await timed_events.parse_time(time.lower())
+        try:
+            delta = await timed_events.parse_time(time.lower())
+        except ValueError:
+            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
         
-        remind_at = datetime.datetime.now() + delta
+        try:
+            remind_at = datetime.datetime.now() + delta
+        except OverflowError:
+            return await ctx.send("You'll be dead by then.")
         human_time = datetime.datetime.strftime(remind_at, "%a %d %b at %H:%M:%S")
         
         connection = await self.bot.db.acquire()
