@@ -185,13 +185,14 @@ class Fixture:
     
     def table(self, driver) -> BytesIO:
         delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]'),
-                  (By.XPATH, './/div[@class="box_over_content"]')]
+                  (By.XPATH, './/div[@class="box_over_content"]'), (By.XPATH, './/div[@id="onetrust-consent-sdk"]')]
         clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
         err = "No table found for this league."
-        xp = './/div[@class="table__wrapper"]'
+        xp = './/div[contains(@class, "tableWrapper")]'
         
         image = selenium_driver.get_image(driver, self.url + "#standings;table;overall", xp, delete=delete,
                                           clicks=clicks, failure_message=err)
+        
         return image
     
     def stats_image(self, driver) -> BytesIO:
@@ -202,7 +203,7 @@ class Fixture:
         return image
     
     def formation(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')] # advert overlay
+        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]  # advert overlay
         clicks = [(By.XPATH, './/div[@id="onetrust-accept-btn-handler"]')]
         xp = './/div[@id="lineups-content"]'
         image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=delete, clicks=clicks,
@@ -309,7 +310,7 @@ class Fixture:
                     
                     # Substitution info
                     elif node_type == "icon-box substitution-in":
-                        pass # We handle the other two instead.
+                        pass  # We handle the other two instead.
                     
                     elif node_type == "substitution-in-name":
                         sub_on = ''.join(node.xpath('.//a/text()')).strip()
@@ -422,6 +423,7 @@ class FlashScoreSearchResult:
         
         league, country = None, None
         fixtures = []
+        
         for i in fixture_rows:
             try:
                 fixture_id = i.xpath("./@id")[0].split("_")[-1]
@@ -433,14 +435,31 @@ class FlashScoreSearchResult:
                     country, league = i.xpath('.//div[contains(@class, "event__title")]//text()')
                     league = league.split(' - ')[0]
                 continue
-            
-            time = "".join(i.xpath('.//div[@class="event__time"]//text()')).strip("Pen").strip('AET')
+
+            # score
+            try:
+                score_home, score_away = i.xpath('.//div[contains(@class,"event__scores")]/span/text()')
+            except ValueError:
+                score_home, score_away = None, None
+            else:
+                score_home = int(score_home.strip())
+                score_away = int(score_away.strip())
+
+            home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
+
+            time = "".join(i.xpath('.//div[@class="event__time"]//text()'))
+            for x in ["Pen", 'AET', 'FRO']:
+                time = time.replace(x, '')
+                
             if not time:
                 time = "?"
             elif "Postp" in time:  # Should be dd.mm hh:mm or dd.mm.yyyy
                 time = "🚫 Postponed "
             elif "Awrd" in time:
-                time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m.%Y')
+                try:
+                    time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m.%Y')
+                except ValueError:
+                    time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m. %H:%M')
                 time = time.strftime("%d/%m/%Y")
                 time = f"{time} 🚫 FF"  # Forfeit
             else:
@@ -456,21 +475,11 @@ class FlashScoreSearchResult:
                         time = datetime.datetime.strptime(f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", '%Y.%d.%m.%H:%M')
             
             is_televised = True if i.xpath(".//div[contains(@class,'tv')]") else False
-            
-            # score
-            try:
-                score_home, score_away = i.xpath('.//div[contains(@class,"event__scores")]/span/text()')
-            except ValueError:
-                score_home, score_away = None, None
-            else:
-                score_home = int(score_home.strip())
-                score_away = int(score_away.strip())
-            
-            home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
             fixture = Fixture(time, home.strip(), away.strip(), score_home=score_home, score_away=score_away,
                               is_televised=is_televised,
                               country=country.strip(), league=league.strip(), url=url)
             fixtures.append(fixture)
+
         return fixtures
 
 
@@ -478,16 +487,39 @@ class Competition(FlashScoreSearchResult):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
     
+    @classmethod
+    def by_id(cls, comp_id, driver=None):
+        url = "http://flashscore.com/?r=2:" + comp_id
+        
+        src = selenium_driver.get_html(driver, url, xpath=".//div[@class='team spoiler-content']")
+        url = selenium_driver.get_target_page(driver, url)
+        tree = html.fromstring(src)
+        
+        country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
+        league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
+        title = country.upper() + " " + league
+        
+        return cls(url=url, title=title, country_name=country, league=league)
+
+    @classmethod
+    def by_link(cls, link, driver=None):
+        src = selenium_driver.get_html(driver, link, xpath=".//div[@class='team spoiler-content']")
+        tree = html.fromstring(src)
+    
+        country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
+        league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
+        title = country.upper() + " " + league
+        return cls(url=link, title=title, country_name=country, league=league)
+    
     @property
     def link(self):
-        if hasattr(self, 'override'):
-            return self.override
-        # Example league URL: https://www.flashscore.com/football/england/premier-league/
+        if "https://" in self.url:
+            return self.url
         ctry = self.country_name.lower().replace(' ', '-')
         return f"https://www.flashscore.com/soccer/{ctry}/{self.url}"
     
     def table(self, driver) -> BytesIO:
-        xp = './/div[@class="table__wrapper"]'
+        xp = './/div[contains(@class, "tableWrapper")]'
         delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
                   (By.XPATH, './/div[contains(@class="isSticky")]'),
                   (By.XPATH, './/div[contains(@id,"box-over-content")]'),
@@ -551,32 +583,15 @@ class Team(FlashScoreSearchResult):
         super().__init__(**kwargs)
     
     @classmethod
-    async def by_id(cls, qry, team_id):
-        qry_debug = qry
-        # example id: p6ahwuwJ
-        # example qry: newcastle
-        qry = qry.replace("'", "")  # For some reason, ' completely breaks FS search, and people keep doing it?
-        qry = urllib.parse.quote(qry)
-        async with aiohttp.ClientSession() as cs:
-            # One day we could probably expand upon this if we figure out what the other variables are.
-            async with cs.get(f"https://s.flashscore.com/search/?q={qry}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
-                res = await resp.text()
-        
-        # Un-fuck FS JSON reply.
-        res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
-        try:
-            res = json.loads(res)
-            for i in res['results']:
-                if i['id'] == team_id:
-                    return cls(**i)
-        except JSONDecodeError:
-            print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
-            raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
+    def by_id(cls, team_id, driver=None):
+        url = "http://flashscore.com/?r=3:" + team_id
+        url = selenium_driver.get_target_page(driver, url)
+        return cls(url=url, id=team_id)
 
     @property
     def link(self):
-        if hasattr(self, 'override'):
-            return self.override
+        if "://" in self.url:
+            return self.url
         # Example Team URL: https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
         return f"https://www.flashscore.com/team/{self.url}/{self.id}"
     
@@ -829,7 +844,10 @@ async def get_stadiums(query) -> typing.List[Stadium]:
 
 async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     qry_debug = query
-    query = query.replace("'", "")  # For some reason, ' completely breaks FS search, and people keep doing it?
+
+    for r in ["'", "[", "]", "#", '<', '>']:  # Fuckin morons.
+        query = query.replace(r, "")
+        
     query = urllib.parse.quote(query)
     async with aiohttp.ClientSession() as cs:
         # One day we could probably expand upon this if we figure out what the other variables are.
