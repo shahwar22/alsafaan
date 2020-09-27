@@ -74,7 +74,10 @@ class Errors(commands.Cog):
             
             traceback.print_tb(cie.__traceback__)
             
-            print(ctx.author.name, ctx.author.id, f"#{ctx.channel.name}", location, ctx.message.content)
+            if hasattr(ctx.channel, "name"):
+                print(ctx.author.name, ctx.author.id, f"#{ctx.channel.name}", location, ctx.message.content)
+            else:
+                print(ctx.author.name, ctx.author.id, "<in a DM>", ctx.message.content)
             print(f'{cie.__class__.__name__}: {cie}')
 
             e.title = error.original.__class__.__name__
