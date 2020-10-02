@@ -98,14 +98,17 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
-        if len(embeds) > 1:
-            if len(embeds) > 2:
-                reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏮")))  # first
-            reacts.append(ctx.bot.loop.create_task(m.add_reaction("◀")))  # prev
-            reacts.append(ctx.bot.loop.create_task(m.add_reaction("▶")))  # next
-            if len(embeds) > 2:
-                reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏭")))  # last
-            reacts.append(ctx.bot.loop.create_task(m.add_reaction('🚫')))
+        try:
+            if len(embeds) > 1:
+                if len(embeds) > 2:
+                    reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏮")))  # first
+                reacts.append(ctx.bot.loop.create_task(m.add_reaction("◀")))  # prev
+                reacts.append(ctx.bot.loop.create_task(m.add_reaction("▶")))  # next
+                if len(embeds) > 2:
+                    reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏭")))  # last
+                reacts.append(ctx.bot.loop.create_task(m.add_reaction('🚫')))
+        except (discord.NotFound, discord.Forbidden):
+            pass  # Early press or no permissions.
     
     # If we're passing an items, we want to get the user's chosen result from the dict.
     # But we always want to be able to change page, or cancel the paginator.

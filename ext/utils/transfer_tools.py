@@ -273,17 +273,20 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     # Create message and add reactions
     m = await ctx.send(embed=e)
     
-    try:
-        if total_pages > 2:
-            await m.add_reaction("⏮")  # first
-        if total_pages > 1:
-            await m.add_reaction("◀")  # prev
-            await m.add_reaction("▶")  # next
-        if total_pages > 2:
-            await m.add_reaction("⏭")  # last
-            ctx.bot.loop.create_task(m.add_reaction("🚫"))  # eject
-    except discord.NotFound:
-        return  # Message deleted.def
+    if ctx.me.permissions_in(ctx.channel).add_reactions:
+        try:
+            if total_pages > 2:
+                await m.add_reaction("⏮")  # first
+            if total_pages > 1:
+                await m.add_reaction("◀")  # prev
+                await m.add_reaction("▶")  # next
+            if total_pages > 2:
+                await m.add_reaction("⏭")  # last
+                ctx.bot.loop.create_task(m.add_reaction("🚫"))  # eject
+        except discord.NotFound:
+            return  # Message deleted or no permissions.
+    else:
+        await ctx.send('I can only show you the first page of results since I do not have add_reactions permissions')
 
     # Only respond to user who invoked command.
     def page_check(emo, usr):
