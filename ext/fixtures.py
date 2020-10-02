@@ -60,6 +60,7 @@ class Fixtures(commands.Cog):
         index = await embed_utils.page_selector(ctx, item_list)
 
         if index is None:
+            await ctx.send('Lookup timed out or cancelled.')
             return  # Timeout or abort.
 
         return search_results[index]

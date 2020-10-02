@@ -64,7 +64,10 @@ class Errors(commands.Cog):
                 try:
                     return await ctx.send(embed=e)
                 except discord.Forbidden:
-                    return await ctx.message.add_reaction('⛔')
+                    try:
+                        return await ctx.message.add_reaction('⛔')
+                    except discord.Forbidden:
+                        return  # You don't get to see the error then. Fuck you.
             
             elif isinstance(cie, discord.Forbidden):
                 try:

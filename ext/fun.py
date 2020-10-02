@@ -75,6 +75,7 @@ class Fun(commands.Cog):
         await ctx.send(embed=e)
     
     @commands.command(usage="poll <your question>")
+    @commands.bot_has_permissions(add_reactions=True)
     async def poll(self, ctx, *, question: commands.clean_content):
         """ Thumbs up / Thumbs Down """
         e = discord.Embed(color=0x7289DA)
@@ -87,6 +88,7 @@ class Fun(commands.Cog):
         await m.add_reaction('👎')
     
     @commands.command(aliases=["rather"])
+    @commands.bot_has_permissions(add_reactions=True)
     async def wyr(self, ctx):
         """ Would you rather... """
         async def fetch():
@@ -132,7 +134,11 @@ class Fun(commands.Cog):
             self.bot.loop.create_task(message.add_reaction('🎲'))
         
         m = await ctx.send(await write(resp))
-        await react(m)
+        
+        try:
+            await react(m)
+        except discord.NotFound:
+            pass  # Early clicks.
         
         # Re-roller
         def check(reaction, user):
@@ -189,32 +195,6 @@ class Fun(commands.Cog):
     async def coin(self, ctx):
         """ Flip a coin """
         await ctx.send(random.choice(["Heads", "Tails"]))
-    
-    @commands.command(hidden=True)
-    @commands.bot_has_permissions(kick_members=True)
-    async def kickme(self, ctx):
-        """ Stop kicking yourself. """
-        try:
-            await ctx.author.kick(reason=f"Used {ctx.invoked_with}")
-        except discord.Forbidden:
-            await ctx.send("⛔ I can't kick you")
-        except discord.HTTPException:
-            await ctx.send('❔ Kicking failed.')
-        else:
-            await ctx.send(f"👢 {ctx.author.mention} kicked themself")
-    
-    @commands.command(hidden=True, aliases=["bamme"])
-    @commands.bot_has_permissions(ban_members=True)
-    async def banme(self, ctx):
-        """ Ban yourself. """
-        try:
-            await ctx.author.ban(reason="Used .banme", delete_message_days=0)
-        except discord.Forbidden:
-            await ctx.send("⛔ I can't ban you")
-        except discord.HTTPException:
-            await ctx.send("❔ Banning failed.")
-        else:
-            await ctx.send(f"☠ {ctx.author.mention} banned themself.")
     
     @commands.command(hidden=True)
     @commands.guild_only()

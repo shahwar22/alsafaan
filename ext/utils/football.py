@@ -448,7 +448,8 @@ class FlashScoreSearchResult:
             home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
 
             time = "".join(i.xpath('.//div[@class="event__time"]//text()'))
-            for x in ["Pen", 'AET', 'FRO']:
+            
+            for x in ["Pen", 'AET', 'FRO', 'WO']:
                 time = time.replace(x, '')
                 
             if not time:
@@ -853,13 +854,14 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
         # One day we could probably expand upon this if we figure out what the other variables are.
         async with cs.get(f"https://s.flashscore.com/search/?q={query}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
             res = await resp.text()
+            assert resp.status == 200, f"Server returned a {resp.status} error, please try again later."
     
     # Un-fuck FS JSON reply.
     res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
     try:
         res = json.loads(res)
     except JSONDecodeError:
-        print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug        }")
+        print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
         raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
     filtered = filter(lambda i: i['participant_type_id'] in (0, 1), res['results'])  # discard players.
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]

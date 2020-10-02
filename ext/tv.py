@@ -21,59 +21,50 @@ class Tv(commands.Cog):
 			with open('tv.json', "w", encoding='utf-8') as f:
 				json.dump(self.bot.tv, f, ensure_ascii=True, sort_keys=True, indent=4, separators=(',', ':'))
 				
-	async def _pick_team(self, ctx, team):
-		em = discord.Embed()
-		em.colour = 0x034f76
-		em.set_author(name="LiveSoccerTV.com")
-		em.description = ""
-		
-		if not team:
-			em.url = "http://www.livesoccertv.com/schedules/"
-			em.title = f"Today's Televised Matches"
-		
-		item_list = [i for i in self.bot.tv if team.lower() in i.lower()]
-		if not item_list:
-			await ctx.send(f"Could not find a matching team/league for {team}.")
-			return None
-		
-		matching_teams = [i for i in self.bot.tv if team.lower() in i.lower()]
-		
-		index = await embed_utils.page_selector(ctx, matching_teams)
-		team = matching_teams[index]
-		em.url = self.bot.tv[team]
-		em.title = f"Televised Fixtures for {team}"
-		return em
-	
 	@commands.command()
 	async def tv(self, ctx, *, team: commands.clean_content = None):
 		""" Lookup next televised games for a team """
 		async with ctx.typing():
-			em = await self._pick_team(ctx, str(team))
 			
-			if em is None:
-				return
+			em = discord.Embed()
+			em.colour = 0x034f76
+			em.set_author(name="LiveSoccerTV.com")
+			em.description = ""
 			
+			if team is not None:
+				item_list = [i for i in self.bot.tv if team in i.lower()]
+				if not item_list:
+					return await ctx.send(f"Could not find a matching team/league for {team}.")
+				matching_teams = [i for i in self.bot.tv if team in i.lower()]
+				index = await embed_utils.page_selector(ctx, matching_teams)
+				team = matching_teams[index]
+				em.url = self.bot.tv[team]
+				em.title = f"Televised Fixtures for {team}"
+			else:
+				em.url = "http://www.livesoccertv.com/schedules/"
+				em.title = f"Today's Televised Matches"		
+
 			tvlist = []
 			async with self.bot.session.get(em.url) as resp:
 				if resp.status != 200:
-					return await ctx.send(f"🚫 <{em.url}> returned {resp.status}")
+					return await ctx.send(f"🚫 <{em.url}> returned a HTTP {resp.status} error, try again later.")
 				tree = html.fromstring(await resp.text())
 				
-				matchcol = 3 if not team else 5
+				match_column = 3 if not team else 5
 				
 				for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
 					# Discard finished games.
-					isdone = "".join(i.xpath('.//td[@class="livecell"]//span/@class')).strip()
-					if isdone in ["narrow ft", "narrow repeat"]:
+					complete = "".join(i.xpath('.//td[@class="livecell"]//span/@class')).strip()
+					if complete in ["narrow ft", "narrow repeat"]:
 						continue
 					
-					match = "".join(i.xpath(f'.//td[{matchcol}]//text()')).strip()
+					match = "".join(i.xpath(f'.//td[{match_column}]//text()')).strip()
 					if not match:
 						continue
-					ml = i.xpath(f'.//td[{matchcol + 1}]//text()')
+					ml = i.xpath(f'.//td[{match_column + 1}]//text()')
 					
 					try:
-						link = i.xpath(f'.//td[{matchcol + 1}]//a/@href')[-1]
+						link = i.xpath(f'.//td[{match_column + 1}]//a/@href')[-1]
 						link = f"http://www.livesoccertv.com/{link}"
 					except IndexError:
 						link = ""
@@ -86,7 +77,7 @@ class Tv(commands.Cog):
 					date = "".join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
 					time = "".join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
 					
-					if isdone != "narrow live":
+					if complete != "narrow live":
 						# Correct TimeZone offset.
 						try:
 							time = datetime.datetime.strptime(time, '%H:%M') + datetime.timedelta(hours=5)
@@ -95,7 +86,7 @@ class Tv(commands.Cog):
 						except ValueError as e:
 							print("ValueError in tv", e)
 							dt = ""
-							
+								
 					elif not team:
 						dt = i.xpath('.//td[@class="timecell"]//span/text()')[-1].strip()
 						if dt == "FT":

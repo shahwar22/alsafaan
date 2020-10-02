@@ -42,52 +42,6 @@ class Reactions(commands.Cog):
     # TODO: Move to notifications.
     # TODO: Create custom Reaction setups per serve r
     # TODO: Bad words filter.
-    @commands.Cog.listener()
-    async def on_message_delete(self, message):
-        # ignore bots
-        if message.author.bot:
-            return
-        
-        # ignore dms
-        if message.guild is None:
-            return
-        
-        # ignore Toonbot command messages.
-        for i in self.bot.prefix_cache[message.guild.id]:
-            if message.content.startswith(i):
-                return
-        
-        # TODO - Cross server.
-        if not message.guild.id == 332159889587699712:
-            return
-        
-        # Filter out deleted numbers - Toonbot.
-        try:
-            int(message.content)
-        except ValueError:
-            pass
-        else:
-            return
-        
-        # Todo: Code "If message was not deleted by bot or user return "
-        
-        delchan = self.bot.get_channel(id=335816981423063050)
-        e = discord.Embed(title="Deleted Message")
-        e.description = f"'{message.content}'"
-        e.set_author(name=message.author.name)
-        e.add_field(name="User ID", value=message.author.id)
-        e.add_field(name="Channel", value=message.channel.mention)
-        e.set_thumbnail(url=message.author.avatar_url)
-        e.timestamp = datetime.datetime.now()
-        e.set_footer(text=f"Created: {message.created_at}")
-        e.colour = message.author.color
-        if message.attachments:
-            att = message.attachments[0]
-            if hasattr(att, "height"):
-                e.add_field(name=f"Attachment info {att.filename} ({att.size} bytes)",
-                            value=f"{att.height}x{att.width}")
-                e.set_image(url=att.proxy_url)
-        await delchan.send(embed=e)
     
     @commands.Cog.listener()
     async def on_message(self, m):
