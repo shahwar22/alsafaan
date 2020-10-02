@@ -58,16 +58,14 @@ class TransferTicker(commands.Cog):
                 continue
             self.cache[key].add((r["item"], r["type"], r["alias"]))
     
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=15)
     async def transfer_ticker(self):
-        try:
-            async with self.bot.session.get('https://www.transfermarkt.co.uk/statistik/neuestetransfers') as resp:
-                if resp.status != 200:
-                    return
-                tree = html.fromstring(await resp.text())
-        except Exception as e:
-            print("Error in transfer_ticker", e)
-            return
+        src = 'https://www.transfermarkt.co.uk/transfers/neuestetransfers/statistik'
+        flags = "?minMarktwert=1"
+        async with self.bot.session.get(src + flags) as resp:
+            if resp.status != 200:
+                return
+            tree = html.fromstring(await resp.text())
         
         skip_output = True if not self.parsed else False
         # skip_output = False   
