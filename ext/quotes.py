@@ -200,7 +200,8 @@ class QuoteDB(commands.Cog):
     async def _del(self, ctx, quote_id: int):
         """ Delete quote by quote ID """
         connection = await self.bot.db.acquire()
-        r = await connection.fetchrow(f"SELECT * FROM quotes WHERE quote_id = $1", quote_id)
+        async with connection.transaction():
+            r = await connection.fetchrow(f"SELECT * FROM quotes WHERE quote_id = $1", quote_id)
         await self.bot.db.release(connection)
         
         if r is None:
@@ -212,10 +213,20 @@ class QuoteDB(commands.Cog):
 
         e = await self.embed_quotes([r])
         e = e[0]  # There will only be one quote to return for this.
-        m = await ctx.send("Delete this quote?", embed=e)
-        await m.add_reaction("👍")
-        await m.add_reaction("👎")
-
+        
+        async def delete():
+            c = await self.bot.db.acquire()
+            async with c.transaction():
+                await c.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
+            await self.bot.db.release(c)
+            await ctx.send(f"Quote #{quote_id} has been deleted.")
+        
+        try:
+            m = await ctx.send("Delete this quote?", embed=e)
+            await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
+        except AssertionError:  # Skip confirm if can't react.
+            await delete()
+            
         def check(reaction, user):
             if reaction.message.id == m.id and user == ctx.author:
                 emoji = str(reaction.emoji)
@@ -231,13 +242,8 @@ class QuoteDB(commands.Cog):
             await ctx.send(f"Quote {quote_id} was not deleted", delete_after=5)
 
         elif res.emoji.startswith("👍"):
-            connection = await self.bot.db.acquire()
-            async with connection.transaction():
-                await connection.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
-            await self.bot.db.release(connection)
-            await ctx.send(f"Quote #{quote_id} has been deleted.")
+            await delete()
         
-
     # Quote Stats.
     @quote.command(usage="<#channel or @user>")
     async def stats(self, ctx, target: typing.Union[discord.Member, discord.TextChannel] = None):
