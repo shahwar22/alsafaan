@@ -30,6 +30,7 @@ default_leagues = [
     "EUROPE: Champions League",
     "EUROPE: Euro",
     "EUROPE: Europa League",
+    "EUROPE: UEFA Nations League",
     "ENGLAND: Premier League",
     "ENGLAND: Championship",
     "ENGLAND: League One",

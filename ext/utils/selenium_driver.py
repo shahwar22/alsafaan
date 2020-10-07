@@ -112,7 +112,6 @@ def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[Byt
             max_iter -= 1
         return captures
     else:
-
         try:
             driver.execute_script("arguments[0].scrollIntoView();", element)
             im = Image.open(BytesIO(element.screenshot_as_png))

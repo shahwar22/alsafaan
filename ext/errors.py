@@ -24,11 +24,12 @@ class Errors(commands.Cog):
         e.title = f"Error: {error.__class__.__name__}"
         e.set_thumbnail(url=str(ctx.me.avatar_url))
 
-        useline = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
-        e.add_field(name="Command Usage Example", value=useline)
+        usage = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
+        e.add_field(name="Command Usage Example", value=usage)
 
         location = "a DM" if ctx.guild is None else f"{ctx.guild.name} ({ctx.guild.id})"
         context = f"({ctx.author}({ctx.author.id}) in {location}"
+        
         if isinstance(error, (commands.NoPrivateMessage, commands.BotMissingPermissions)):
             if ctx.guild is None:
                 e.title = 'NoPrivateMessage'  # Ugly override.
@@ -80,12 +81,11 @@ class Errors(commands.Cog):
                 except (discord.errors.Forbidden, discord.NotFound):
                     return
             
-            traceback.print_tb(cie.__traceback__)
-            
             if hasattr(ctx.channel, "name"):
                 print(ctx.author.name, ctx.author.id, f"#{ctx.channel.name}", location, ctx.message.content)
             else:
                 print(ctx.author.name, ctx.author.id, "<in a DM>", ctx.message.content)
+            traceback.print_tb(cie.__traceback__)
             print(f'{cie.__class__.__name__}: {cie}')
 
             e.title = error.original.__class__.__name__
