@@ -1,13 +1,12 @@
-import re
-
 from discord.ext.commands.cooldowns import BucketType
 from discord.ext import commands
+from ext.utils import embed_utils
+from importlib import reload
 import datetime
 import asyncio
 import discord
 import random
-
-from ext.utils.embed_utils import paginate
+import re
 
 
 class Fun(commands.Cog):
@@ -16,6 +15,7 @@ class Fun(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        reload(embed_utils)
     
     @commands.command(hidden=True)
     async def itscominghome(self, ctx):
@@ -84,8 +84,7 @@ class Fun(commands.Cog):
         e.set_footer(text=f"Poll created by {ctx.author.name}")
         
         m = await ctx.send(embed=e)
-        await m.add_reaction('👍')
-        await m.add_reaction('👎')
+        await embed_utils.bulk_react(ctx, m, ['👍', '👎'])
     
     @commands.command(aliases=["rather"])
     @commands.bot_has_permissions(add_reactions=True)
@@ -128,17 +127,8 @@ class Fun(commands.Cog):
             mc = f"{ctx.author.mention} **{title}...** \n{opta} \n{optb}"
             return mc
         
-        async def react(message):
-            self.bot.loop.create_task(message.add_reaction('🇦'))
-            self.bot.loop.create_task(message.add_reaction('🇧'))
-            self.bot.loop.create_task(message.add_reaction('🎲'))
-        
         m = await ctx.send(await write(resp))
-        
-        try:
-            await react(m)
-        except discord.NotFound:
-            pass  # Early clicks.
+        await embed_utils.bulk_react(ctx, m, ['🇦', '🇧', '🎲'])
         
         # Re-roller
         def check(reaction, user):
@@ -287,7 +277,7 @@ class Fun(commands.Cog):
             e.set_footer(text=un)
             return await ctx.send(embed=e)
         
-        await paginate(ctx, embeds)
+        await embed_utils.paginate(ctx, embeds)
 
 
 def setup(bot):

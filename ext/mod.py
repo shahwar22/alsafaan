@@ -101,9 +101,8 @@ class Mod(commands.Cog):
     async def leave(self, ctx):
         """ Politely ask me to leave the server. """
         m = await ctx.send('Are you sure you want me to go? All of your settings will be wiped.')
-        await m.add_reaction('✅')
-        await m.add_reaction('🚫')
-        
+        await embed_utils.bulk_react(ctx, m, ['✅', '🚫'])
+
         def check(reaction, user):
             if reaction.message.id == m.id and user == ctx.author:
                 emoji = str(reaction.emoji)

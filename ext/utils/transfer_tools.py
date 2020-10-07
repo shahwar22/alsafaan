@@ -4,7 +4,11 @@ import discord
 import asyncio
 from lxml import html
 
+from ext.utils import embed_utils
+
 # Manual Country Code Flag Dict
+
+
 country_dict = {
     "American Virgin Islands": "vi",
     "Antigua and Barbuda": "ag",
@@ -273,19 +277,19 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     # Create message and add reactions
     m = await ctx.send(embed=e)
     
-    if ctx.me.permissions_in(ctx.channel).add_reactions:
-        try:
-            if total_pages > 2:
-                await m.add_reaction("⏮")  # first
-            if total_pages > 1:
-                await m.add_reaction("◀")  # prev
-                await m.add_reaction("▶")  # next
-            if total_pages > 2:
-                await m.add_reaction("⏭")  # last
-                ctx.bot.loop.create_task(m.add_reaction("🚫"))  # eject
-        except discord.NotFound:
-            return  # Message deleted or no permissions.
-    else:
+    reacts = []
+    if total_pages > 2:
+        reacts.append("⏮")  # first
+    if total_pages > 1:
+        reacts.append("◀")  # prev
+        reacts.append("▶")  # next
+    if total_pages > 2:
+        reacts.append("⏭")  # last
+    reacts.append("🚫")  # eject
+    
+    try:
+        await embed_utils.bulk_react(ctx, m, reacts)
+    except AssertionError:
         await ctx.send('I can only show you the first page of results since I do not have add_reactions permissions')
 
     # Only respond to user who invoked command.

@@ -8,10 +8,19 @@ import typing
 from PIL import UnidentifiedImageError
 from colorthief import ColorThief
 import datetime
+
 # Constant, used for footers.
-
-
 PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
+
+
+async def bulk_react(ctx, message, react_list):
+    assert ctx.me.permissions_in(ctx.channel).add_reactions
+    
+    for r in react_list:
+        try:
+            ctx.bot.loop.create_task(message.add_reaction(r))
+        except discord.NotFound:
+            break
 
 
 async def embed_image(ctx, base_embed, image, filename=None):
