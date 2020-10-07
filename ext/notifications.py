@@ -17,7 +17,6 @@ class Notifications(commands.Cog):
         self.bot.loop.create_task(self.update_cache())
     
     # TODO: Custom welcome message
-    # TODO: Port on_message_delete
     # TODO: Custom Reactions.
 
     # Db Create / Delete Listeners
@@ -169,7 +168,8 @@ class Notifications(commands.Cog):
         f"from {message.author} ({message.author.id}) in {message.channel.mention}**"
         d2 = message.clean_content
         await ch.send(d1)
-        await ch.send(d2)
+        if d2:
+            await ch.send(d2)
         
         if message.attachments:
             att = message.attachments[0]
