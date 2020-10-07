@@ -9,9 +9,14 @@ class Errors(commands.Cog):
     async def on_command_error(self, ctx, error):
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return  # Fail silently.
-
+        
         if isinstance(error, DisabledCommand):
-            return await ctx.message.add_reaction('🚫')
+            if ctx.me.permissions_in(ctx.channel).add_reactions:
+                return await ctx.message.add_reaction('🚫')
+            try:
+                return await ctx.send('This command is disabled for this server', delete_after=10)
+            except discord.Forbidden:
+                return
 
         # Embed errors.
         e = discord.Embed()
