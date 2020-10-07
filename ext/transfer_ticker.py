@@ -18,7 +18,10 @@ class TransferTicker(commands.Cog):
         h = {'Authorization': f'Client-ID {self.bot.credentials["Imgur"]["Authorization"]}'}
         async with self.bot.session.post("https://api.imgur.com/3/image", data=d, headers=h) as resp:
             res = await resp.json()
-        return res['data']['link']
+        try:
+            return res['data']['link']
+        except KeyError:
+            return None
     
     def __init__(self, bot):
         self.bot = bot
@@ -152,7 +155,8 @@ class TransferTicker(commands.Cog):
             # Get picture and re-host on imgur.
             th = "".join(i.xpath('.//td[1]//tr[1]/td[1]/img/@src'))
             th = await self.imgurify(th)
-            e.set_thumbnail(url=th)
+            if th is not None:
+                e.set_thumbnail(url=th)
             
             shortstring = f"{player_name} | {fee} | <{fee_link}>\n{move_info}"
             for (guild_id, channel_id, mode), whitelist in self.cache.copy().items():
