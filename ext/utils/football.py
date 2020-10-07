@@ -520,14 +520,17 @@ class Competition(FlashScoreSearchResult):
         return f"https://www.flashscore.com/soccer/{ctry}/{self.url}"
     
     def table(self, driver) -> BytesIO:
-        xp = './/div[contains(@class, "tableWrapper")]'
+        xp = './/div[contains(@class, "tableWrapper")]/parent::div'
         delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
                   (By.XPATH, './/div[contains(@class="isSticky")]'),
                   (By.XPATH, './/div[contains(@id,"box-over-content")]'),
                   (By.XPATH, './/div[@class="ot-sdk-container"]')
                   ]
-        err = f"No table found on {self.link}"
-        image = selenium_driver.get_image(driver, self.link + "/standings/", xp, err, delete=delete)
+        
+        table_page = self.link + "/standings/"
+        
+        err = f"No table found on {table_page}"
+        image = selenium_driver.get_image(driver, table_page, xp, err, delete=delete)
         self.fetch_logo(driver)
         return image
     
