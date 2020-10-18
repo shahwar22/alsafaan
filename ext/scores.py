@@ -1,8 +1,8 @@
 import asyncio
 from collections import defaultdict
-from copy import deepcopy
 
 import discord
+import typing
 from discord.ext import commands, tasks
 
 # Web Scraping
@@ -55,8 +55,8 @@ async def _search(ctx, qry) -> str or None:
     search_results = await football.get_fs_results(qry)
     item_list = [i.title for i in search_results if i.participant_type_id == 0]  # Check for specifics.
     index = await embed_utils.page_selector(ctx, item_list)
-
-    if not index:
+    
+    if index is None:
         return None  # Timeout or abort.
 
     return search_results[index]
@@ -334,16 +334,19 @@ class Scores(commands.Cog, name="LiveScores"):
 
     @commands.group(invoke_without_command=True, aliases=['livescores'])
     @commands.has_permissions(manage_channels=True)
-    async def ls(self, ctx):
+    async def ls(self, ctx, *, channel: typing.Optional[discord.TextChannel] = None):
         """ View the status of your live scores channels. """
         e = discord.Embed(color=0x2ecc71)
         e.set_thumbnail(url=ctx.me.avatar_url)
         e.title = f"{ctx.guild.name} Live Scores channels"
         
-        score_ids = [i[1] for i in self.cache if ctx.guild.id in i]
-        if not score_ids:
-            return await ctx.send(f"{ctx.guild.name} has no live-scores channel set.")
-    
+        if channel is None:
+            score_ids = [i[1] for i in self.cache if ctx.guild.id in i]
+            if not score_ids:
+                return await ctx.send(f"{ctx.guild.name} has no live-scores channel set.")
+        else:
+            score_ids = [channel.id]
+            
         for i in score_ids:
             ch = self.bot.get_channel(i)
             if ch is None:
