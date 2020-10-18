@@ -63,4 +63,4 @@ class Bot(commands.Bot):
 
 
 loop = asyncio.get_event_loop()
-loop.run_until_complete(run())c
+loop.run_until_complete(run())

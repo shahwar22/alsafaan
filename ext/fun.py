@@ -229,7 +229,7 @@ class Fun(commands.Cog):
     async def dead(self, ctx):
         """ STOP STOP HE'S ALREADY DEAD """
         await ctx.send("https://www.youtube.com/watch?v=mAUY1J8KizU")
-    
+        
     @commands.command(aliases=["urbandictionary"])
     async def ud(self, ctx, *, lookup: commands.clean_content):
         """ Lookup a definition from urban dictionary """
