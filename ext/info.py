@@ -168,7 +168,10 @@ class Info(commands.Cog):
         
         e = discord.Embed()
         e.title = guild.name
-        e.description = f"Owner: {guild.owner.mention}\nGuild ID: {guild.id}"
+        try:
+            e.description = f"Owner: {guild.owner.mention}\nGuild ID: {guild.id}"
+        except AttributeError:
+            e.description = f"Guild ID: {guild.id}"
         e.description += f'\n\n{guild.member_count} Members ({mstatus["online"]} Online)' \
                          f"\n{regular_channels} text channels "
         if voice_channels:
