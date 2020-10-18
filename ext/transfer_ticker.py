@@ -252,7 +252,7 @@ class TransferTicker(commands.Cog):
                     wl.append(f"{x[2]} ({x[1]})")  # Alias, type.
                     
                 embeds = embed_utils.rows_to_embeds(e, wl)
-                await self.bot.loop.create_task(paginate(ctx, embeds))
+                self.bot.loop.create_task(paginate(ctx, embeds))
                 continue
             else:
                 e.colour = discord.Colour.dark_orange()
