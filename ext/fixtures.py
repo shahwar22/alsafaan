@@ -62,7 +62,6 @@ class Fixtures(commands.Cog):
         if index is None:
             await ctx.send('Lookup timed out or cancelled.')
             return  # Timeout or abort.
-
         return search_results[index]
 
     # Fetch from bot games.
