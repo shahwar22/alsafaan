@@ -186,9 +186,6 @@ class MatchThread:
         # Clean up.
         if self.driver is not None:
             self.driver.quit()
-
-    async def get_driver(self):
-        self.driver = await self.bot.loop.run_in_executor(None, spawn_driver)
     
     # Reddit posting shit.
     def make_post(self, title, markdown):
