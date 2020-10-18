@@ -524,7 +524,8 @@ class Competition(FlashScoreSearchResult):
         delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
                   (By.XPATH, './/div[contains(@class="isSticky")]'),
                   (By.XPATH, './/div[contains(@id,"box-over-content")]'),
-                  (By.XPATH, './/div[@class="ot-sdk-container"]')
+                  (By.XPATH, './/div[@class="ot-sdk-container"]'),
+                  (By.XPATH, './/div[@id="onetrust-consent-sdk"]')
                   ]
         
         table_page = self.link + "/standings/"
@@ -866,5 +867,6 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     except JSONDecodeError:
         print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
         raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
-    filtered = filter(lambda i: i['participant_type_id'] in (0, 1), res['results'])  # discard players.
+    
+    filtered = [i for i in res['results'] if i['participant_type_id'] in (0, 1)]
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]
