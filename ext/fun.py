@@ -155,7 +155,7 @@ class Fun(commands.Cog):
     @commands.is_owner()
     async def secrettory(self, ctx):
         await ctx.send(f"The secret tory is {random.choice(ctx.guild.members).mention}")
-    
+
     @commands.command(aliases=["choice", "pick", "select"], usage="Option 1, Option 2, Option 3 ...")
     async def choose(self, ctx, *, choices):
         """ Make a decision for me (seperate choices with commas)"""
