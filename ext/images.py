@@ -262,12 +262,12 @@ class Images(commands.Cog):
             match = random.choice([True, False, False])
             if not match:
                 return await ctx.send("Nobody swiped right on you.")
-            
+
             async with self.bot.session.get(str(ctx.author.avatar_url_as(format="png"))) as resp:
                 av = await resp.content.read()
             match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
             name = match.display_name
-            
+
             async with self.bot.session.get(str(match.avatar_url_as(format="png"))) as resp:
                 target = await resp.content.read()
                 output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
