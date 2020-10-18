@@ -26,12 +26,18 @@ async def run():
 
 class Bot(commands.Bot):
     def __init__(self, **kwargs):
+        
+        intents = discord.Intents.default()
+        intents.members = True
+        
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
             owner_id=210582977493598208,
-            activity=discord.Game(name="Use .tb help")
+            activity=discord.Game(name="Use .tb help"),
+            intents=intents
         )
+        
         self.fixture_driver = None
         self.db = kwargs.pop("database")
         self.credentials = credentials
@@ -57,4 +63,4 @@ class Bot(commands.Bot):
 
 
 loop = asyncio.get_event_loop()
-loop.run_until_complete(run())
+loop.run_until_complete(run())c

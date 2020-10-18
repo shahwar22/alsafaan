@@ -15,12 +15,15 @@ PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 async def bulk_react(ctx, message, react_list):
     assert ctx.me.permissions_in(ctx.channel).add_reactions
-    
     for r in react_list:
-        try:
-            ctx.bot.loop.create_task(message.add_reaction(r))
-        except discord.NotFound:
-            break
+        ctx.bot.loop.create_task(react(message, r))
+
+           
+async def react(message, reaction):
+    try:
+        await message.add_reaction(reaction)
+    except (discord.Forbidden, discord.NotFound):
+        pass
 
 
 async def embed_image(ctx, base_embed, image, filename=None):
@@ -110,14 +113,19 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         try:
             if len(embeds) > 1:
                 if len(embeds) > 2:
-                    reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏮")))  # first
-                reacts.append(ctx.bot.loop.create_task(m.add_reaction("◀")))  # prev
-                reacts.append(ctx.bot.loop.create_task(m.add_reaction("▶")))  # next
+                    reacts.append("⏮")  # first
+                reacts.append("◀")  # prev
+                reacts.append("▶")  # next
                 if len(embeds) > 2:
-                    reacts.append(ctx.bot.loop.create_task(m.add_reaction("⏭")))  # last
-                reacts.append(ctx.bot.loop.create_task(m.add_reaction('🚫')))
+                    reacts.append("⏭")  # last
+                reacts.append('🚫')
         except (discord.NotFound, discord.Forbidden):
             pass  # Early press or no permissions.
+    
+    try:
+        await bulk_react(ctx, m, reacts)
+    except AssertionError:
+        reacts = []
     
     # If we're passing an items, we want to get the user's chosen result from the dict.
     # But we always want to be able to change page, or cancel the paginator.
@@ -132,10 +140,10 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                     return True
         
             waits.append(ctx.bot.wait_for("message", check=id_check))
-        if ctx.me.permissions_in(ctx.channel).add_reactions:
+        if reacts:
             def react_check(r, u):
                 if r.message.id == m.id and u.id == ctx.author.id:
-                    return str(r.emoji).startswith(('⏮', '◀', '▶', '⏭', '🚫'))
+                    return str(r.emoji).startswith(tuple(reacts))
         
             waits.append(ctx.bot.wait_for("reaction_add", check=react_check))
             waits.append(ctx.bot.wait_for("reaction_remove", check=react_check))
@@ -173,9 +181,6 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
             i.cancel()
         
         if isinstance(result, discord.Message):
-            for i in reacts:  # Still adding reactions.
-                i.cancel()
-            
             try:
                 await m.delete()  # Just a little cleanup.
                 await result.delete()
@@ -202,8 +207,6 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 
             elif result[0].emoji == "🚫":  # Delete:
                 await m.delete()
-                for i in reacts:
-                    i.cancel()
                 return None
             await m.edit(embed=embeds[page])
 
