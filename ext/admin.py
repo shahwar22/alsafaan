@@ -2,6 +2,7 @@ from discord.ext import commands
 import discord
 from os import system
 import inspect
+import sys
 
 # to expose to the eval command
 import datetime
@@ -150,6 +151,12 @@ class Admin(commands.Cog):
         await self.bot.change_presence(activity=act)
         await ctx.send(f"Set status to {ctx.invoked_with} {status}")
 
+    
+    @commands.command()
+    @commands.is_owner()
+    async def version(self, ctx):
+        await ctx.send(sys.version)
+    
     @commands.command()
     @commands.is_owner()
     async def shared(self, ctx, *, user_id: int):
