@@ -60,7 +60,7 @@ def rows_to_embeds(base_embed, rows, per_row=10) -> typing.List[discord.Embed]:
     return embeds
 
 
-async def page_selector(ctx, item_list, base_embed=None) -> int:
+async def page_selector(ctx, item_list, base_embed=None) -> int or None:
     if base_embed is None:
         base_embed = discord.Embed()
         base_embed.title = "Multiple results found."
@@ -77,7 +77,10 @@ async def page_selector(ctx, item_list, base_embed=None) -> int:
         page_text = "\n".join([f"`[{num}]` {value}" for num, value in page])
         base_embed.description = "Please type matching ID#:\n\n" + page_text
         embeds.append(deepcopy(base_embed))
-    index = await paginate(ctx, embeds, items=item_list)
+    try:
+        index = await paginate(ctx, embeds, items=item_list)
+    except AssertionError:
+        return None
     return index
 
 

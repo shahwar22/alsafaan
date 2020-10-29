@@ -28,8 +28,9 @@ class Bot(commands.Bot):
     def __init__(self, **kwargs):
         
         intents = discord.Intents.default()
+        print("You fucking")
         intents.members = True
-        
+        print("Potato")
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
@@ -37,11 +38,12 @@ class Bot(commands.Bot):
             activity=discord.Game(name="Use .tb help"),
             intents=intents
         )
-        
+        print("The fuck did you do?")
         self.fixture_driver = None
         self.db = kwargs.pop("database")
         self.credentials = credentials
         self.initialised_at = datetime.utcnow()
+        print("No, seriously")
         self.session = aiohttp.ClientSession(loop=self.loop)
     
     async def on_ready(self):
@@ -63,4 +65,5 @@ class Bot(commands.Bot):
 
 
 loop = asyncio.get_event_loop()
+print("Got event loop")
 loop.run_until_complete(run())
