@@ -19,6 +19,18 @@ reload(selenium_driver)
 reload(transfer_tools)
 reload(image_utils)
 
+FLASH_SCORE_ADS = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
+                   (By.XPATH, './/div[@class="banner--sticky"]'),
+                   (By.XPATH, './/div[@class="box_over_content"]'),
+                   (By.XPATH, './/div[@class="ot-sdk-container"]'),
+                   (By.XPATH, './/div[@class="adsenvelope"]'),
+                   (By.XPATH, './/div[@id="onetrust-consent-sdk"]'),
+                   (By.XPATH, './/div[@id="lsid-window-mask"]'),
+                   (By.XPATH, './/div[contains(@class, "isSticky")]'),
+                   (By.XPATH, './/div[contains(@class, "rollbar")]'),
+                   (By.XPATH, './/div[contains(@id,"box-over-content")]')
+                   ]
+
 
 class Fixture:
     def __init__(self, time: typing.Union[str, datetime.datetime], home: str, away: str, **kwargs):
@@ -48,12 +60,14 @@ class Fixture:
         return f"Fixture({self.__dict__})"
     
     def __str__(self):
-        tv = '📺' if hasattr(self, "is_televised") and self.is_televised else ""
-    
         if hasattr(self, "url"):
-            return f"`{self.formatted_time}:` [{self.bold_score}{tv}]({self.url})"
+            return f"`{self.formatted_time}:` [{self.bold_score}{self.tv}]({self.url})"
         else:
-            return f"`{self.formatted_time}:` {self.bold_score}{tv}"
+            return f"`{self.formatted_time}:` {self.bold_score}{self.tv}"
+        
+    @property
+    def tv(self):
+        return '📺' if hasattr(self, "is_televised") and self.is_televised else ""
 
     @classmethod
     def by_id(cls, match_id, driver=None):
@@ -112,26 +126,21 @@ class Fixture:
         return f"`{self.state_colour[0]}` {self.time} {self.home_cards} {self.bold_score} {self.away_cards}"
 
     @property
-    def base_embed(self) -> discord.Embed:
+    async def base_embed(self) -> discord.Embed:
         e = discord.Embed()
         # Don't use bold_score, embed author doesn't like it.
-        e.set_author(name=f"≡ {self.home} {self.score} {self.away} ({self.time})")
+        e.title = f"≡ {self.home} {self.score} {self.away}"
         e.url = self.url
         
-        e.title = f"**{self.country}**: {self.league}"
-        e.timestamp = datetime.datetime.now()
-    
-        if self.time == "Postponed":
+        e.set_author(name=f"{self.country}: {self.league}")
+        if isinstance(self.time, datetime.datetime):
+            e.timestamp = self.time
+        elif self.time == "Postponed":
             e.description = "This match has been postponed."
     
         e.colour = self.state_colour[1]
         try:
-            h, m = self.time.split(':')
-            now = datetime.datetime.now()
-            when = datetime.datetime.now().replace(hour=int(h), minute=int(m))
-            x = when - now
-            e.set_footer(text=f"Kickoff in {x}")
-            e.timestamp = when
+            e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
         except (ValueError, AttributeError):
             pass
         return e
@@ -174,46 +183,39 @@ class Fixture:
     def bracket(self, driver) -> BytesIO:
         xp = './/div[@class="overview"]'
         clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
-        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]'),
-                  (By.XPATH, './/div[@class="adsenvelope"]'), (By.XPATH, './/div[contains(@class, "rollbar")]')]
         script = "var element = document.getElementsByClassName('overview')[0];" \
                  "element.style.position = 'fixed';element.style.backgroundColor = '#ddd';" \
                  "element.style.zIndex = '999';"
-        image = selenium_driver.get_image(driver, self.url + "#draw", xpath=xp, clicks=clicks, delete=delete,
+        image = selenium_driver.get_image(driver, self.url + "#draw", xpath=xp, clicks=clicks, delete=FLASH_SCORE_ADS,
                                           script=script, failure_message="Unable to find bracket for that tournament.")
         return image
     
     def table(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]'),
-                  (By.XPATH, './/div[@class="box_over_content"]'), (By.XPATH, './/div[@id="onetrust-consent-sdk"]')]
         clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
         err = "No table found for this league."
         xp = './/div[contains(@class, "tableWrapper")]'
         
-        image = selenium_driver.get_image(driver, self.url + "#standings;table;overall", xp, delete=delete,
+        image = selenium_driver.get_image(driver, self.url + "#standings;table;overall", xp, delete=FLASH_SCORE_ADS,
                                           clicks=clicks, failure_message=err)
         
         return image
     
     def stats_image(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
-        xp = ".//div[@class='statBox']"
-        image = selenium_driver.get_image(driver, self.url + "#match-statistics;0", xp, delete=delete,
+        xp = ".//div[@class='statBFox']"
+        image = selenium_driver.get_image(driver, self.url + "#match-statistics;0", xp, delete=FLASH_SCORE_ADS,
                                           failure_message="Unable to find live stats for this match.")
         return image
     
     def formation(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]  # advert overlay
         clicks = [(By.XPATH, './/div[@id="onetrust-accept-btn-handler"]')]
         xp = './/div[@id="lineups-content"]'
-        image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=delete, clicks=clicks,
+        image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=FLASH_SCORE_ADS, clicks=clicks,
                                           failure_message="Unable to find formations for this match")
         return image
     
     def summary(self, driver) -> BytesIO:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
         xp = ".//div[@id='summary-content']"
-        image = selenium_driver.get_image(driver, self.url + "#match-summary", xp, delete=delete,
+        image = selenium_driver.get_image(driver, self.url + "#match-summary", xp, delete=FLASH_SCORE_ADS,
                                           failure_message="Unable to find summary for this match")
         return image
 
@@ -521,17 +523,10 @@ class Competition(FlashScoreSearchResult):
     
     def table(self, driver) -> BytesIO:
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
-        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
-                  (By.XPATH, './/div[contains(@class="isSticky")]'),
-                  (By.XPATH, './/div[contains(@id,"box-over-content")]'),
-                  (By.XPATH, './/div[@class="ot-sdk-container"]'),
-                  (By.XPATH, './/div[@id="onetrust-consent-sdk"]')
-                  ]
-        
         table_page = self.link + "/standings/"
         
         err = f"No table found on {table_page}"
-        image = selenium_driver.get_image(driver, table_page, xp, err, delete=delete)
+        image = selenium_driver.get_image(driver, table_page, xp, err, delete=FLASH_SCORE_ADS)
         self.fetch_logo(driver)
         return image
     
@@ -540,10 +535,9 @@ class Competition(FlashScoreSearchResult):
         xp = './/div[@id="box-table-type--1"]'
         multi = (By.PARTIAL_LINK_TEXT, 'scroll right »')
         clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
-        delete = [(By.XPATH, './/div[@class="seoAdWrapper"]'), (By.XPATH, './/div[@class="banner--sticky"]')]
         script = "document.getElementsByClassName('playoff-scroll-button')[0].style.display = 'none';" \
                  "document.getElementsByClassName('playoff-scroll-button')[1].style.display = 'none';"
-        captures = selenium_driver.get_image(driver, url, xpath=xp, clicks=clicks, delete=delete,
+        captures = selenium_driver.get_image(driver, url, xpath=xp, clicks=clicks, delete=FLASH_SCORE_ADS,
                                              multi_capture=(multi, script),
                                              failure_message="Unable to find a bracket for that competition")
         self.fetch_logo(driver)  # For base_embed.
@@ -601,10 +595,8 @@ class Team(FlashScoreSearchResult):
         return f"https://www.flashscore.com/team/{self.url}/{self.id}"
     
     def players(self, driver, tab=0) -> typing.List[Player]:
-        delete = [(By.XPATH, './/div[@id="lsid-window-mask"]')]
         xp = './/div[contains(@class,"playerTable")]'
-        
-        src = selenium_driver.get_html(driver, self.link + "/squad", xp, delete=delete)
+        src = selenium_driver.get_html(driver, self.link + "/squad", xp)
         tree = html.fromstring(src)
         tab += 1  # tab is Indexed at 0 but xpath indexes from [1]
         rows = tree.xpath(f'.//div[contains(@class, "playerTable")][{tab}]//div[contains(@class,"profileTable__row")]')
