@@ -5,7 +5,6 @@ from importlib import reload
 import datetime
 import discord
 import typing
-import copy
 
 from ext.utils.embed_utils import get_colour
 
@@ -105,15 +104,15 @@ class Info(commands.Cog):
                 other_people = len(voice.members) - 1
                 voice_fmt = f'{voice.name} with {other_people} others' if other_people else f'{voice.name} alone'
                 e.add_field(name='Voice Chat', value=voice_fmt, inline=False)
-            status = str(member.status).title()
-            
-            if status == "Online":
-                status = "🟢 Online\n"
-            elif status == "Offline":
-                status = "🔴 Offline\n"
-            else:
-                status = f"🟡 {status}\n"
-            
+            # status = str(member.status).title()
+            #
+            # if status == "Online":
+            #     status = "🟢 Online\n"
+            # elif status == "Offline":
+            #     status = "🔴 Offline\n"
+            # else:
+            #     status = f"🟡 {status}\n"
+            #
             activity = member.activity
             try:
                 activity = f"{discord.ActivityType[activity.type]} {activity.name}\n"
@@ -124,12 +123,13 @@ class Info(commands.Cog):
             e.add_field(name=f'Joined {ctx.guild.name}', value=coloured_time, inline=False)
             e.colour = member.colour
         except AttributeError:
-            status = ""
+            # status = ""
             activity = ""
             pass
         
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id)
-        field_1_text = f"{status}ID: {member.id}\n{activity}"
+        # field_1_text = f"{status}ID: {member.id}\n{activity}"
+        field_1_text = f"ID: {member.id}\n{activity}"
         if shared - 1:
             field_1_text += f"Seen in {shared} other discords."
         e.add_field(name="User info", value=field_1_text)
@@ -154,8 +154,6 @@ class Info(commands.Cog):
         """ Shows information about the server """
         guild = ctx.guild
         
-        secret_member = copy.copy(guild.me)
-        
         # figure out what channels are 'secret'
         text_channels = 0
         for channel in guild.channels:
@@ -163,8 +161,6 @@ class Info(commands.Cog):
         
         regular_channels = len(guild.channels)
         voice_channels = len(guild.channels) - text_channels
-        mstatus = Counter(str(m.status) for m in guild.members)
-        members = f'Total {guild.member_count} ({mstatus["online"]} Online)'
         
         e = discord.Embed()
         e.title = guild.name
@@ -172,7 +168,7 @@ class Info(commands.Cog):
             e.description = f"Owner: {guild.owner.mention}\nGuild ID: {guild.id}"
         except AttributeError:
             e.description = f"Guild ID: {guild.id}"
-        e.description += f'\n\n{guild.member_count} Members ({mstatus["online"]} Online)' \
+        e.description += f'\n\n{guild.member_count} Members' \
                          f"\n{regular_channels} text channels "
         if voice_channels:
             e.description += f"and {voice_channels} Voice channels"

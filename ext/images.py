@@ -265,7 +265,8 @@ class Images(commands.Cog):
 
             async with self.bot.session.get(str(ctx.author.avatar_url_as(format="png"))) as resp:
                 av = await resp.content.read()
-            match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
+            match = random.choice(ctx.guild.members)
+            # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
             name = match.display_name
 
             async with self.bot.session.get(str(match.avatar_url_as(format="png"))) as resp:
