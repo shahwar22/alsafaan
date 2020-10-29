@@ -24,14 +24,12 @@ class Notifications(commands.Cog):
     async def on_guild_join(self, guild):
         await asyncio.sleep(10)  # Time for other cogs to do their shit.
         await self.update_cache()
-        print(f"[Join] {guild.id} ({guild.name})")
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         connection = await self.bot.db.acquire()
         await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
-        print(f"[Remove] {guild.id} ({guild.name})")
     
     async def update_cache(self):
         connection = await self.bot.db.acquire()
@@ -84,7 +82,6 @@ class Notifications(commands.Cog):
         e.colour = 0x7289DA
         s = sum(1 for m in self.bot.get_all_members() if m.id == new_member.id)
         e.title = str(new_member)
-        e.add_field(name="Status", value=str(new_member.status).title(), inline=True)
         e.add_field(name='User ID', value=new_member.id, inline=True)
         e.add_field(name='Mutual Servers', value=f'{s} shared', inline=True)
         if new_member.bot:
