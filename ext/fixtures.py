@@ -69,12 +69,12 @@ class Fixtures(commands.Cog):
         q = qry.lower()
         matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
         if not matches:
-            return
+            return None
     
         pickers = [str(i) for i in matches]
         index = await embed_utils.page_selector(ctx, pickers)
         if index is None:
-            return  # timeout or abort.
+            return None  # timeout or abort.
     
         return matches[index]
     
@@ -177,14 +177,17 @@ class Fixtures(commands.Cog):
                 for_picking = [i.full_league for i in choices]
                 
                 embed = await fsr.base_embed
+                follow_through = (embed.colour, embed.thumbnail.url)
                 index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed))
                 if index is None:
                     return  # rip
-                embed.title = for_picking[index]
-                embed.description = f"{choices[index]}"
-                image = await self.bot.loop.run_in_executor(None, choices[index].table, self.bot.fixture_driver)
+                fsr = choices[index]
+                embed = await fsr.base_embed
+                embed.set_thumbnail(url=follow_through[1])
+                embed.colour = follow_through[0]
+                image = await self.bot.loop.run_in_executor(    None, fsr.table, self.bot.fixture_driver)
             else:
-                print(f'WtfERROR: fsr is of type {type(fsr)}')
+                print(f'ERROR: fsr is of type {type(fsr)}')
             fn = f"Table-{qry}-{dtn}.png".strip()
             await embed_utils.embed_image(ctx, embed, image, filename=fn)
 
@@ -213,7 +216,8 @@ class Fixtures(commands.Cog):
                 embed = await fsr.base_embed
                 index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed))
                 if index is None:
-                    return  # rip
+                    return
+                
                 embed.title = for_picking[index]
                 embed.description = f"{choices[index]}"
                 image = await self.bot.loop.run_in_executor(None, choices[index].bracket, self.bot.fixture_driver)
