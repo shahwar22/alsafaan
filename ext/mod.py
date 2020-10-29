@@ -46,8 +46,14 @@ class Mod(commands.Cog):
         if ctx.message.content == ctx.me.mention:
             if message.guild is None:
                 return await ctx.send(ctx.author.mention)
-            await ctx.send(f"Forgot your prefixes? They're ```css"
-                           f"\n{', '.join(self.bot.prefix_cache[message.guild.id])}```")
+            try:
+                await ctx.send(f"Forgot your prefixes? They're ```css"
+                               f"\n{', '.join(self.bot.prefix_cache[message.guild.id])}```")
+            except discord.Forbidden:
+                try:
+                    await message.add_reaction()
+                except discord.Forbidden:
+                    return
     
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -63,7 +69,6 @@ class Mod(commands.Cog):
         );
         """, guild.id,  '.tb ')
         await self.bot.db.release(connection)
-        print(f"[Prefix] '.tb ' set for {guild.id} ({guild.name})")
         await self.update_prefixes()
 
     async def update_prefixes(self):
