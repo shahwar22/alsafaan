@@ -53,7 +53,8 @@ default_leagues = [
 
 async def _search(ctx, qry) -> str or None:
     search_results = await football.get_fs_results(qry)
-    item_list = [i.title for i in search_results if i.participant_type_id == 0]  # Check for specifics.
+    search_results = [i for i in search_results if i.participant_type_id == 0]  # Filter out non-leagues
+    item_list = [i.title for i in search_results]
     index = await embed_utils.page_selector(ctx, item_list)
     
     if index is None:
@@ -303,12 +304,22 @@ class Scores(commands.Cog, name="LiveScores"):
         if ctx.guild.id not in [i[0] for i in self.cache]:
             await ctx.send(f'{ctx.guild.name} does not have any live scores channels set.')
             channels = []
-        else:
+        
+        if channels:
+            # Verify selected channels are actually in the database.
+            checked = []
+            for i in channels:
+                if i.id not in [c[1] for c in self.cache]:
+                    await ctx.send(f"{i.mention} is not set as a live scores channel.")
+                else:
+                    checked.append(i)
+            channels = checked
+            
+        if not channels:
             # Channel picker for invoker.
             def check(message):
                 return ctx.author.id == message.author.id and message.channel_mentions
             
-            # If no Query provided we check current whitelists.
             guild_channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == ctx.guild.id]
             guild_channels = [i for i in guild_channels if i is not None]  # fuckin deleting channel dumbfucks.
             if not channels:
@@ -362,7 +373,8 @@ class Scores(commands.Cog, name="LiveScores"):
             
             for x in embeds:
                 x.description = f"```yaml\n{x.description}```"
-            self.bot.loop.create_task(paginate(ctx, embeds))
+            if embeds:
+                self.bot.loop.create_task(paginate(ctx, embeds))
 
     @ls.command(usage="[#Channel-Name]")
     @commands.has_permissions(manage_channels=True)
@@ -397,7 +409,7 @@ class Scores(commands.Cog, name="LiveScores"):
         await self.update_cache()
 
     @commands.has_permissions(manage_channels=True)
-    @ls.command(usage="[#channel #channel2] <search query>")
+    @ls.command(usage="[#channel #channel2] <search query or flashscore link>")
     async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry: commands.clean_content = None):
         """ Add a league to an existing live-scores channel """
         channels = await self._pick_channels(ctx, channels)
@@ -406,10 +418,14 @@ class Scores(commands.Cog, name="LiveScores"):
             return  # rip
         
         if qry is None:
-            return await ctx.send("Specify a competition name to search for.")
+            return await ctx.send("Specify a competition name to search for, example usage:\n"
+                                  f"{ctx.prefix}{ctx.command} #live-scores Premier League")
         
-        await ctx.send(f"Searching for {qry}...", delete_after=5)
-        res = await _search(ctx, qry)
+        if "http" not in qry:
+            await ctx.send(f"Searching for {qry}...", delete_after=5)
+            res = await _search(ctx, qry)
+        else:
+            res = football.Competition().by_link(qry, driver=self.bot.fixture_driver)
         
         if res is None:
             return await ctx.send("Didn't find any leagues. Your channels were not modified.")
