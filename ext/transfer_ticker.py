@@ -213,7 +213,7 @@ class TransferTicker(commands.Cog):
                     channels = [channels[index]]
         
         if isinstance(channels, discord.TextChannel):
-            channels = [channels]  # always try to return a list...
+            channels = [channels]  # always return a list
             
         return channels
     
@@ -252,7 +252,8 @@ class TransferTicker(commands.Cog):
                     wl.append(f"{x[2]} ({x[1]})")  # Alias, type.
                     
                 embeds = embed_utils.rows_to_embeds(e, wl)
-                self.bot.loop.create_task(paginate(ctx, embeds))
+                if embeds:
+                    self.bot.loop.create_task(paginate(ctx, embeds))
                 continue
             else:
                 e.colour = discord.Colour.dark_orange()
