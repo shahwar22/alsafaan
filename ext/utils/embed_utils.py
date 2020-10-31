@@ -78,7 +78,7 @@ async def page_selector(ctx, item_list, base_embed=None) -> int or None:
         base_embed.description = "Please type matching ID#:\n\n" + page_text
         embeds.append(deepcopy(base_embed))
     try:
-        index = await paginate(ctx, embeds, items=item_list)
+        index = await paginate(ctx, embeds, items=item_list, preserve_footer=True)
     except AssertionError:
         return None
     return index
@@ -121,7 +121,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 reacts.append("▶")  # next
                 if len(embeds) > 2:
                     reacts.append("⏭")  # last
-                reacts.append('🚫')
+            reacts.append('🚫')
         except (discord.NotFound, discord.Forbidden):
             pass  # Early press or no permissions.
     
