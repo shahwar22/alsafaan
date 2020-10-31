@@ -128,21 +128,22 @@ class Fixture:
     @property
     async def base_embed(self) -> discord.Embed:
         e = discord.Embed()
-        # Don't use bold_score, embed author doesn't like it.
-        e.title = f"≡ {self.home} {self.score} {self.away}"
+        e.title = f"≡ {self.bold_score}"
         e.url = self.url
         
         e.set_author(name=f"{self.country}: {self.league}")
         if isinstance(self.time, datetime.datetime):
             e.timestamp = self.time
+            if self.time > datetime.datetime.now():
+                e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
         elif self.time == "Postponed":
-            e.description = "This match has been postponed."
+            e.set_footer(text="This match has been postponed.")
+            e.colour = discord.Color.red()
+        else:
+            e.set_footer(text=self.time)
+            e.timestamp = datetime.datetime.now()
     
         e.colour = self.state_colour[1]
-        try:
-            e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
-        except (ValueError, AttributeError):
-            pass
         return e
 
     # For discord.
@@ -395,7 +396,7 @@ class FlashScoreSearchResult:
         else:
             try:
                 ctry, league = self.title.split(': ')
-                e.title = f"{league} ({ctry.title()})"
+                e.title = f"{ctry}: {league}"
             except (ValueError, AttributeError):
                 pass
         
@@ -453,8 +454,10 @@ class FlashScoreSearchResult:
             
             for x in ["Pen", 'AET', 'FRO', 'WO']:
                 time = time.replace(x, '')
-                
-            if not time:
+            
+            if "'" in time:
+                time = f"⚽ LIVE! {time}"
+            elif not time:
                 time = "?"
             elif "Postp" in time:  # Should be dd.mm hh:mm or dd.mm.yyyy
                 time = "🚫 Postponed "
@@ -500,9 +503,8 @@ class Competition(FlashScoreSearchResult):
         
         country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
         league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
-        title = country.upper() + " " + league
-        
-        return cls(url=url, title=title, country_name=country, league=league)
+        title = f"{country.upper()}: {league}"
+        return cls(url=url, title=title)
 
     @classmethod
     def by_link(cls, link, driver=None):
@@ -511,8 +513,8 @@ class Competition(FlashScoreSearchResult):
     
         country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
         league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
-        title = country.upper() + " " + league
-        return cls(url=link, title=title, country_name=country, league=league)
+        title = f"{country.upper()}: {league}"
+        return cls(url=link, title=title)
     
     @property
     def link(self):
