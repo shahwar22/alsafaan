@@ -6,7 +6,7 @@ from PIL import Image
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, \
-    StaleElementReferenceException, UnexpectedAlertPresentException
+    StaleElementReferenceException, UnexpectedAlertPresentException, NoSuchElementException
 from selenium.webdriver import DesiredCapabilities
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -116,6 +116,10 @@ def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[Byt
             driver.execute_script("arguments[0].scrollIntoView();", element)
             im = Image.open(BytesIO(element.screenshot_as_png))
         except StaleElementReferenceException:
+            element = WebDriverWait(driver, 3).until(ec.visibility_of_element_located((By.XPATH, xpath)))
+            driver.execute_script("arguments[0].scrollIntoView();", element)
+            im = Image.open(BytesIO(element.screenshot_as_png))
+        except NoSuchElementException:
             element = WebDriverWait(driver, 3).until(ec.visibility_of_element_located((By.XPATH, xpath)))
             driver.execute_script("arguments[0].scrollIntoView();", element)
             im = Image.open(BytesIO(element.screenshot_as_png))
