@@ -47,7 +47,7 @@ default_leagues = [
     "USA: MLS"
 ]
 
-# TODO: re-code vidi-printer
+# TODO: re-code vidi-printer | https://www.sportinglife.com/football/live/vidiprinter
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 
 
