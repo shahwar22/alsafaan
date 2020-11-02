@@ -74,7 +74,7 @@ class Fun(commands.Cog):
         e.set_footer(text=ftstr)
         await ctx.send(embed=e)
     
-    @commands.command(usage="poll <your question>")
+    @commands.command(usage="<your question>")
     @commands.bot_has_permissions(add_reactions=True)
     async def poll(self, ctx, *, question: commands.clean_content):
         """ Thumbs up / Thumbs Down """
