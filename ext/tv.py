@@ -107,17 +107,8 @@ class Tv(commands.Cog):
 			
 			em.set_footer(text=f"Time now: {dtn} Your Time:")
 			em.timestamp = datetime.datetime.now()
-			chars = 0
-			remain = len(tvlist)
-			for x in tvlist:
-				if len(x) + + chars < 2000:
-					em.description += x + "\n"
-					remain -= 1
-				chars += len(x) + 5
-			
-			if remain:
-				em.description += f"\n *and {remain} more...*"
-			await ctx.send(embed=em)
+			embeds = embed_utils.rows_to_embeds(em, tvlist)
+			await embed_utils.paginate(ctx, embeds)
 
 
 def setup(bot):
