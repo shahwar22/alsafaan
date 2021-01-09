@@ -88,7 +88,7 @@ def get_flag(country):
             # else revert to manual dict.w
             country = country_dict[country]
         except KeyError:
-            return country # Shrug.
+            return country  # Shrug.
     country = country.lower()
 
     for key, value in unidict.items():
@@ -221,7 +221,7 @@ async def fetch_page(ctx, category, query, page):
     url = 'http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
     async with ctx.bot.session.post(url, params=p) as resp:
         if resp.status != 200:
-            await ctx.send(f"HTTP Error connecting to transfermarkt: {resp.status}")
+            await ctx.reply(f"HTTP Error connecting to transfermarkt: {resp.status}", mention_author=False)
             return None
         tree = html.fromstring(await resp.text())
     categ = cats[category]["cat"]
@@ -265,7 +265,7 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     page = 1
     e, tree, total_pages = await fetch_page(ctx, category, qry, page)
     if not tree:
-        return await ctx.send("No results.")
+        return await ctx.reply("No results.", mention_author=False)
 
     lines, targets = await cats[category]["parser"](tree)
     
@@ -275,7 +275,7 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     e, items = make_embed(e, lines, targets, special)
 
     # Create message and add reactions
-    m = await ctx.send(embed=e)
+    m = await ctx.reply(embed=e, mention_author=False)
     
     reacts = []
     if total_pages > 2:
@@ -290,7 +290,7 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     try:
         await embed_utils.bulk_react(ctx, m, reacts)
     except AssertionError:
-        await ctx.send('I can only show you the first page of results since I do not have add_reactions permissions')
+        await ctx.reply('I can only show you the first page of results since I do not have add_reactions permissions')
 
     # Only respond to user who invoked command.
     def page_check(emo, usr):
@@ -376,7 +376,7 @@ async def get_transfers(ctx, e, target):
     p = {"w_s": period}
     async with ctx.bot.session.get(target, params=p) as resp:
         if resp.status != 200:
-            return await ctx.send(f"Error {resp.status} connecting to {resp.url}")
+            return await ctx.reply(f"Error {resp.status} connecting to {resp.url}", mention_author=False)
         tree = html.fromstring(await resp.text())
     
     e.set_author(name="".join(tree.xpath('.//head/title/text()')), url=target)
@@ -430,7 +430,7 @@ async def get_transfers(ctx, e, target):
     for x, y in [("Players in", inlist), ("Loans In", inloans), ("Players out", outlist), ("Loans Out", outloans)]:
         write_field(x, y) if y else ""
     
-    await ctx.send(embed=e)
+    await ctx.reply(embed=e, mention_author=False)
 
 
 async def get_rumours(ctx, e, target):
@@ -438,7 +438,7 @@ async def get_rumours(ctx, e, target):
     target = target.replace('startseite', 'geruechte')
     async with ctx.bot.session.get(f"{target}") as resp:
         if resp.status != 200:
-            return await ctx.send(f"Error {resp.status} connecting to {resp.url}")
+            return await ctx.reply(f"Error {resp.status} connecting to {resp.url}", mention_author=False)
         tree = html.fromstring(await resp.text())
         e.url = str(resp.url)
     e.set_author(name=tree.xpath('.//head/title[1]/text()')[0], url=str(resp.url))
@@ -477,7 +477,7 @@ async def get_rumours(ctx, e, target):
         count += 1
     e.description = output
     
-    await ctx.send(embed=e)
+    await ctx.reply(embed=e, mention_author=False)
 
 cats = {
             "players": {

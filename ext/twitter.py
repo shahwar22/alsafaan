@@ -6,6 +6,7 @@ import json
 from lxml import html
 import html as htmlc
 
+TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
 # TODO: convert to use DB
 # TODO: Re-investigate the best way to do a twitter loop.
@@ -19,7 +20,7 @@ class Twitter(commands.Cog):
         self.bot = bot
         with open("twitter.json") as f:
             self.track = json.load(f)
-        self.pclient = PeonyClient(**self.bot.credentials['Twitter'])
+        self.peony = PeonyClient(**self.bot.credentials['Twitter'])
         self.bot.twitask = self.bot.loop.create_task(self.twat())
     
     def cog_unload(self):
@@ -38,8 +39,7 @@ class Twitter(commands.Cog):
         # Retrieve list of IDs to track
         ids = ",".join([str(i[1]["id"]) for i in self.track.items()])
         
-        footericon = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
-        ts = self.pclient.stream.statuses.filter.post(follow=ids)
+        ts = self.peony.stream.statuses.filter.post(follow=ids)
         
         async with ts as stream:
             async for t in stream:
@@ -105,7 +105,7 @@ class Twitter(commands.Cog):
                 
                 e.set_thumbnail(url=u.profile_image_url)
                 e.timestamp = datetime.strptime(t.created_at, "%a %b %d %H:%M:%S %z %Y")
-                e.set_footer(icon_url=footericon, text="Twitter")
+                e.set_footer(icon_url=TWITTER_ICON, text="Twitter")
                 
                 lk = f"http://www.twitter.com/{u.screen_name}/status/{t.id_str}"
                 e.title = f"{u.name} (@{u.screen_name})"
@@ -174,14 +174,12 @@ class Twitter(commands.Cog):
             self.bot.twitask.print_stack()
             v = "⁉ Task Finished"
             z = self.bot.twitask.exception()
-        else:
-            v = f"❔ `{self.bot.twitask._state}`"
-        e.add_field(name="Debug Info", value=v, inline=False)
-        try:
             e.add_field(name="Exception", value=z, inline=False)
-        except NameError:
-            pass
-        await ctx.send(embed=e)
+        else:
+            v = f"❔ `{x}`"
+        e.add_field(name="Debug Info", value=v, inline=False)
+
+        await ctx.reply(embed=e, mention_author=False)
     
     @twitter.command(name="add")
     @commands.is_owner()
@@ -190,16 +188,16 @@ class Twitter(commands.Cog):
         params = {"user_name": username, "submit": "GET+USER+ID"}
         async with self.bot.session.get("http://gettwitterid.com/", params=params) as resp:
             if resp.status != 200:
-                await ctx.send("🚫 HTTP Error {resp.status} try again later.")
+                await ctx.reply(f"🚫 HTTP Error {resp.status} try again later.")
                 return
             tree = html.fromstring(await resp.text())
             try:
-                id = tree.xpath('.//tr[1]/td[2]/p/text()')[0]
+                item_id = tree.xpath('.//tr[1]/td[2]/p/text()')[0]
             except IndexError:
-                await ctx.send("🚫 Couldn't find user with that name.")
-        self.track[username] = {"id": int(id), "channel": ctx.channel.id}
+                await ctx.reply("🚫 Couldn't find user with that name.")
+        self.track[username] = {"id": int(item_id), "channel": ctx.channel.id}
         await self._save()
-        await ctx.send(f"{username} will be tracked in {ctx.channel.mention} from next restart.")
+        await ctx.reply(f"{username} will be tracked in {ctx.channel.mention} from next restart.", mention_author=False)
     
     @twitter.command(name="del")
     @commands.is_owner()
@@ -209,7 +207,8 @@ class Twitter(commands.Cog):
         if username.lower() in trk:
             self.track.pop(trk[username.lower()])
             await self._save()
-
-
+        await ctx.reply(f"{username} deleted from twitter tracker")
+        
+        
 def setup(bot):
     bot.add_cog(Twitter(bot))

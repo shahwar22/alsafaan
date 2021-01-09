@@ -1,14 +1,48 @@
+import os
 import typing
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord.ext import commands
 from discord.ext.commands.cooldowns import BucketType
 import textwrap
 import discord
+from lxml import html
 import random
 import json
 from io import BytesIO
 
 from ext.utils import embed_utils
+
+targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1"
+           "DobbyM8", "frostinator08", "GameProdigy", "Jamdearest", "KidneyCowboy", "Lord_Zath", "Masterchief1567",
+           "nebelfuss", "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel",
+           "StatsBloke", "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend",
+           "Xairen", "Yuzral"]
+
+
+def make_bauble(img):
+    # Open Avatar file.
+    avatar = Image.open(r"F:/Logos/" + img).convert(mode="RGBA")
+    
+    # Create Canvas & Paste Avatar
+    canvas = Image.new("RGBA", (300, 350), (0, 0, 0, 255))
+    canvas.paste(avatar, (0, 50))
+    
+    # Apply Bauble mask.
+    msk = Image.open("images/Bauble_MASK.png").convert('L')
+    canvas.putalpha(msk)
+    
+    # Apply bauble top overlay
+    bauble_top = Image.open("images/BaubleTop.png").convert(mode="RGBA")
+    canvas.paste(bauble_top, mask=bauble_top)
+    
+    output_loc = r"F:/Logo-Output/" + img.split('.')[0]
+    canvas.save(output_loc + ".png")
+
+
+def bulk_image():
+    directory = r'F:\Logos'
+    for img in os.listdir(directory):
+        make_bauble(img)
 
 
 def draw_tinder(image, av, name):
@@ -210,10 +244,10 @@ async def get_faces(ctx, target):
             target = i.url
             break
         else:
-            await ctx.send('🚫 To use this command either upload an image, tag a user, or specify a url.')
+            await ctx.reply('🚫 To use this command either upload an image, tag a user, or specify a url.')
             return None, None, None
     elif "://" not in target:
-        await ctx.send(f"{target} doesn't look like a valid url.")
+        await ctx.reply(f"{target} doesn't look like a valid url.")
         return None, None, None
     
     # Prepare POST
@@ -228,17 +262,18 @@ async def get_faces(ctx, target):
     async with ctx.bot.session.post(url, params=p, headers=h, data=d) as resp:
         if resp.status != 200:
             if resp.status == 400:
-                await ctx.send(await resp.json())
+                await ctx.reply(await resp.json(), mention_author=False)
             else:
-                await ctx.send(
-                    f"HTTP Error {resp.status} recieved accessing project oxford's facial recognition API.")
+                await ctx.reply(
+                    f"HTTP Error {resp.status} recieved accessing project oxford's facial recognition API.",
+                    mention_author=False)
             return None, None, None
         response = await resp.json()
     
     # Get target image as file
     async with ctx.bot.session.get(target) as resp:
         if resp.status != 200:
-            await ctx.send(f"{resp.status} code accessing project oxford.")
+            await ctx.reply(f"{resp.status} code accessing project oxford.", mention_author=False)
         image = await resp.content.read()
     return image, response, target
 
@@ -258,14 +293,15 @@ class Images(commands.Cog):
         """ Try to Find your next date. """
         with ctx.typing():
             if ctx.author.id == 272722118192529409:
-                return await ctx.send("Nobody will ever swipe right on you, Kegs.")
+                return await ctx.reply("Nobody will ever swipe right on you, Kegs.", mention_author=True)
             match = random.choice([True, False, False])
             if not match:
-                return await ctx.send("Nobody swiped right on you.")
+                return await ctx.reply("Nobody swiped right on you.", mention_author=False)
 
             async with self.bot.session.get(str(ctx.author.avatar_url_as(format="png"))) as resp:
                 av = await resp.content.read()
             match = random.choice(ctx.guild.members)
+            # TODO: Get presence intents.
             # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
             name = match.display_name
 
@@ -293,7 +329,7 @@ class Images(commands.Cog):
             image, response, target = await get_faces(ctx, target)
             
             if response is None:
-                return await ctx.send("🚫 No faces were detected in your image.")
+                return await ctx.reply("🚫 No faces were detected in your image.", mention_author=False)
             
             image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
             icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
@@ -320,7 +356,7 @@ class Images(commands.Cog):
             image, response, target = await get_faces(ctx, target)
             
             if response is None:
-                return await ctx.send("🚫 No faces were detected in your image.")
+                return await ctx.reply("🚫 No faces were detected in your image.", mention_author=False)
             
             image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
             icon = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/" \
@@ -345,7 +381,7 @@ class Images(commands.Cog):
         with ctx.typing():
             image, response, target = await get_faces(ctx, target)
             if response is None:
-                return await ctx.send("No faces were detected in your image.")
+                return await ctx.reply("No faces were detected in your image.", mention_author=True)
             
             image = await self.bot.loop.run_in_executor(None, draw_eyes, image, response)
             icon = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/microsoft/209/eyes_1f440.png"
@@ -372,17 +408,19 @@ class Images(commands.Cog):
                 quote = "I think I'm smarter than Painezor"
             async with self.bot.session.get(str(target.avatar_url_as(format="png", size=1024))) as resp:
                 if resp.status != 200:
-                    return await ctx.send(f"Error retrieving avatar for target {target} {resp.status}")
+                    return await ctx.reply(f"Error retrieving avatar for target {target} {resp.status}",
+                                           mention_author=False)
                 image = await resp.content.read()
             df = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
             # TODO: Embedify
             
-            await ctx.send(file=df)
+            await ctx.reply(file=df, mention_author=False)
     
     @tard.error
     async def tard_error(self, ctx, exc):
         if isinstance(exc, commands.BadArgument):
-            return await ctx.send("🚫 Bad argument provided: Make sure you're pinging a user or using their ID")
+            return await ctx.reply("🚫 Bad argument provided: Make sure you're pinging a user or using their ID",
+                                   mention_author=True)
 
     @commands.command(aliases=["localman", "local", "ruin"], usage="[@member or leave blank to use yourself.]")
     async def ruins(self, ctx, *, user: discord.User = None):
@@ -393,40 +431,40 @@ class Images(commands.Cog):
             av = str(user.avatar_url_as(format="png", size=256))
             async with self.bot.session.get(av) as resp:
                 if resp.status != 200:
-                    await ctx.send(f"{resp.status} Error getting {user}'s avatar")
+                    await ctx.reply(f"{resp.status} Error getting {user}'s avatar", mention_author=False)
                 image = await resp.content.read()
             df = await self.bot.loop.run_in_executor(None, ruin, image)
-            await ctx.send(file=df)
+            await ctx.reply(file=df, mention_author=False)
 
     @commands.command(hidden=True)
     async def butter(self, ctx):
         """ What is my purpose? """
-        await ctx.send(file=discord.File("Images/butter.png"))
+        await ctx.reply(file=discord.File("Images/butter.png"), mention_author=False)
     
     @commands.command(hidden=True)
     async def fixed(self, ctx):
         """ Fixed! """
-        await ctx.send(file=discord.File("Images/fixed.png"))
+        await ctx.reply(file=discord.File("Images/fixed.png"), mention_author=False)
     
     @commands.command(hidden=True)
     async def ructions(self, ctx):
         """ WEW. RUCTIONS. """
-        await ctx.send(file=discord.File("Images/ructions.png"))
+        await ctx.reply(file=discord.File("Images/ructions.png"), mention_author=False)
     
     @commands.command(hidden=True)
     async def helmet(self, ctx):
         """ Helmet"""
-        await ctx.send(file=discord.File("Images/helmet.jpg"))
+        await ctx.reply(file=discord.File("Images/helmet.jpg"), mention_author=False)
     
     @commands.command(hidden=True, aliases=["f"])
     async def pressf(self, ctx):
         """ Press F to pay respects """
-        await ctx.send("https://i.imgur.com/zrNE05c.gif")
+        await ctx.reply("https://i.imgur.com/zrNE05c.gif", mention_author=False)
     
     @commands.command(hidden=True)
     async def goala(self, ctx):
         """ Party on Garth """
-        await ctx.send(file=discord.File('Images/goala.gif'))
+        await ctx.reply(file=discord.File('Images/goala.gif'), mention_author=False)
         
     @commands.command(usage="<an emoji>")
     async def emoji(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
@@ -446,8 +484,7 @@ class Images(commands.Cog):
         
         e.set_image(url=url)
         e.set_footer(text=url)
-        await ctx.send(embed=e)
-
+        await ctx.reply(embed=e, mention_author=False)
 
 def setup(bot):
     bot.add_cog(Images(bot))

@@ -109,10 +109,10 @@ class QuoteDB(commands.Cog):
                 
         await self.bot.db.release(connection)
         if not r:
-            return await ctx.send(failure)
+            return await ctx.reply(failure, mention_author=True)
         
         embeds = await self.embed_quotes(r)
-        await ctx.send(success)
+        await ctx.reply(success, mention_author=False)
         await embed_utils.paginate(ctx, embeds, preserve_footer=True)
 
     @commands.group(invoke_without_command=True, aliases=["quotes"],
@@ -120,8 +120,8 @@ class QuoteDB(commands.Cog):
     async def quote(self, ctx, quote_id: typing.Optional[int], users: commands.Greedy[discord.User]):
         """ Get a random quote from this server. (optionally by Quote ID# or user(s). """
         if len(str(quote_id)) > 6:
-            return  await ctx.send("Too long to be a quote ID. if you're trying to add a quote, "
-                                   "use quote add number instead")
+            return await ctx.reply("Too long to be a quote ID. if you're trying to add a quote, "
+                                   f"use `{ctx.prefix}quote add number` instead")
         await self._get_quote(ctx, quote_id=quote_id, users=users)
 
     # Add quote
@@ -134,18 +134,19 @@ class QuoteDB(commands.Cog):
             messages = await ctx.history(limit=50).flatten()
             m = discord.utils.get(messages, channel=ctx.channel, author=target)
             if not m:
-                await ctx.send("No messages from that user found in last 50 messages, please use message's id or link")
+                await ctx.reply("No messages from that user found in last 50 messages, please use message's id or link",
+                                mention_author=False)
                 return
         elif isinstance(target, discord.Message):
             m = target
         else:
-            return await ctx.send('Invalid argument provided for target.')
+            return await ctx.reply('Invalid argument provided for target.', mention_author=True)
 
         if m.author.id == ctx.author.id:
-            return await ctx.send("You can't quote yourself.")
-        n = await ctx.send("Attempting to add quote to db...")
+            return await ctx.reply("You can't quote yourself.", mention_author=True)
+        n = await ctx.reply("Attempting to add quote to db...", mention_author=False)
         if not m.content:
-            return await ctx.send('That message has no content.')
+            return await ctx.reply('That message has no content.', mention_author=True)
         connection = await self.bot.db.acquire()
         
         async with connection.transaction():
@@ -156,16 +157,14 @@ class QuoteDB(commands.Cog):
                     VALUES ($1,$2,$3,$4,$5,$6,$7)
                     RETURNING *""",
                     m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
-            except UniqueViolationError as e:
-                print("uniqueViolatrionError", e)
-                return await ctx.send("That quote is already in the database!")
+                e = await self.embed_quotes([r])
+                await n.edit(content=":white_check_mark: Successfully added quote to database", embed=e[0])
+            except UniqueViolationError:
+                await n.edit(content="That quote is already in the database!")
             except Exception as b:
+                print("Error in quote add")
                 print(b.__name__, dir(b))
         await self.bot.db.release(connection)
-        e = await self.embed_quotes([r])
-        
-        # There will only be one embed returned in this list this so we can just send e[0]
-        await n.edit(content=":white_check_mark: Successfully added quote to database", embed=e[0])
     
     # Find quote
     @quote.command(aliases=['global'], usage="[Optional: @member]")
@@ -205,11 +204,11 @@ class QuoteDB(commands.Cog):
         await self.bot.db.release(connection)
         
         if r is None:
-            return await ctx.send(f"No quote found with ID #{quote_id}")
+            return await ctx.reply(f"No quote found with ID #{quote_id}", mention_author=True)
 
         if r["guild_id"] != ctx.guild.id:
             if ctx.author.id != self.bot.owner_id:
-                return await ctx.send(f"You can't delete quotes from other servers!")
+                return await ctx.reply(f"You can't delete quotes from other servers.", mention_author=True)
 
         e = await self.embed_quotes([r])
         e = e[0]  # There will only be one quote to return for this.
@@ -219,13 +218,14 @@ class QuoteDB(commands.Cog):
             async with c.transaction():
                 await c.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
             await self.bot.db.release(c)
-            await ctx.send(f"Quote #{quote_id} has been deleted.")
+            await ctx.reply(f"Quote #{quote_id} has been deleted.", mention_author=False)
         
         try:
-            m = await ctx.send("Delete this quote?", embed=e)
+            m = await ctx.reply("Delete this quote?", embed=e, mention_author=True)
             await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
         except AssertionError:  # Skip confirm if can't react.
             await delete()
+            return
             
         def check(reaction, user):
             if reaction.message.id == m.id and user == ctx.author:
@@ -235,14 +235,16 @@ class QuoteDB(commands.Cog):
         try:
             res = await self.bot.wait_for("reaction_add", check=check, timeout=30)
         except asyncio.TimeoutError:
-            return await ctx.send("Response timed out after 30 seconds, quote not deleted", delete_after=30)
+            await m.clear_reactions()
+            return await ctx.reply("Response timed out after 30 seconds, quote not deleted", mention_author=False)
         res = res[0]
 
         if res.emoji.startswith("👎"):
-            await ctx.send(f"Quote {quote_id} was not deleted", delete_after=5)
+            await ctx.reply(f"Quote {quote_id} was not deleted", mention_author=False)
 
         elif res.emoji.startswith("👍"):
             await delete()
+        await m.clear_reactions()
         
     # Quote Stats.
     @quote.command(usage="<#channel or @user>")
@@ -270,7 +272,8 @@ class QuoteDB(commands.Cog):
                 (SELECT COUNT(*) FROM quotes WHERE channel_id = $2) AS channel"""
             escaped = [ctx.guild.id, target.id]
         connection = await self.bot.db.acquire()
-        r = await connection.fetchrow(sql, *escaped)
+        async with connection.transaction():
+            r = await connection.fetchrow(sql, *escaped)
         await self.bot.db.release(connection)
 
         e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
@@ -288,7 +291,7 @@ class QuoteDB(commands.Cog):
                         inline=False)
             e.add_field(name="All Quotes", value=f"{r['total']} total quotes in database", inline=False)
         e.set_footer(text=f"This information was requested by {ctx.author}")
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
 
 
 def setup(bot):

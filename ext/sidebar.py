@@ -178,7 +178,7 @@ class NUFCSidebar(commands.Cog):
         for x in fixtures + results:
             try:
                 r = [i for i in self.bot.teams if i['name'] == x.home][0]
-                x.home_icon =r['icon']
+                x.home_icon = r['icon']
                 x.home_subreddit = r['subreddit']
                 x.short_home = r['short_name']
             except IndexError:
@@ -187,7 +187,7 @@ class NUFCSidebar(commands.Cog):
                 x.short_home = x.home
             try:
                 r = [i for i in self.bot.teams if i['name'] == x.away][0]
-                x.away_icon =r['icon']
+                x.away_icon = r['icon']
                 x.away_subreddit = r['subreddit']
                 x.short_away = r['short_name']
             except IndexError:
@@ -250,7 +250,6 @@ class NUFCSidebar(commands.Cog):
                 await self.edit_caption(caption)
         
             if ctx.message.attachments:
-                s = self.bot.reddit.subreddit("NUFC")
                 await ctx.message.attachments[0].save("sidebar.png")
                 await self.bot.loop.run_in_executor(None, self.upload_image, "sidebar.png", "sidebar",
                                                     f"Sidebar image updated by {ctx.author} via discord")
@@ -266,7 +265,7 @@ class NUFCSidebar(commands.Cog):
             e.set_author(icon_url=th, name="Sidebar updater")
             e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
             e.timestamp = datetime.datetime.now()
-            await ctx.send(embed=e)
+            await ctx.reply(embed=e, mention_author=False)
 
 
 def setup(bot):

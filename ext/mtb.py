@@ -12,6 +12,7 @@ from importlib import reload
 from ext.utils import football
 from ext.utils.selenium_driver import spawn_driver
 
+
 async def get_ref_link(bot, name):
     name = name.strip()  # clean up nbsp.
     surname = name.split(' ')[0]
@@ -97,10 +98,11 @@ class MatchThread:
             print('Pre-match-offset check.')
             await discord.utils.sleep_until(self.fixture.time - datetime.timedelta(minutes=self.pre_match_offset))
             print('pre-match-offset ended.')
+            pre_match_instance = None
             if self.pre_match_url is None:
                 pass
                 # TODO: Pre-match posting.
-                title, markdown = await self.make_pre_match()
+                # title, markdown = await self.make_pre_match()
                 # pre_match_instance = await self.bot.loop.run_in_executor(None, self.make_post, title, markdown)
                 # self.pre_match_url = pre_match_instance.url
                 # connection = await self.bot.db.acquire()
@@ -119,7 +121,6 @@ class MatchThread:
         # Gather initial data
         await self.bot.loop.run_in_executor(None, self.fixture.refresh, self.driver)
         title, markdown = await self.write_markdown()
-        return
         
         # Sleep until ready to post.
         if isinstance(self.fixture.time, datetime.datetime):
@@ -208,7 +209,7 @@ class MatchThread:
     
     async def make_pre_match(self):
         # TODO: Actually write the code.
-        # self.pre_match_url = post.url
+        self.pre_match_url = post.url
         title = "blah"
         markdown = "blah"
         return title, markdown
@@ -322,7 +323,6 @@ class MatchThread:
         else:
             referee = ""
         
-
         # TODO: Get venue link.
         stadium = f"**🥅 Venue**: {self.fixture.stadium}" if self.fixture.stadium is not None else ""
         attendance = f" (👥 Attendance: {self.fixture.attendance})" if self.fixture.attendance is not None else ""
@@ -484,7 +484,7 @@ class MatchThreadCommands(commands.Cog):
         # Via team id test
         # team = await football.Team.by_id("newcastle", 'p6ahwuwJ')
         # fixtures = team.fetch_fixtures(driver=self.driver, subpage="/fixtures")
-        # await ctx.send(fixtures[0].refresh(driver=self.driver))
+        # await ctx.reply(fixtures[0].refresh(driver=self.driver), mention_author=False)
 
         # Via match ID test
         f = football.Fixture.by_id("6mpl3XvE", driver=self.driver) # (Penalty Shootout game)

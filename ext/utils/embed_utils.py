@@ -32,7 +32,7 @@ async def embed_image(ctx, base_embed, image, filename=None):
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     file = discord.File(fp=image, filename=filename)
     base_embed.set_image(url=f"attachment://{filename}")
-    await ctx.send(file=file, embed=base_embed)
+    await ctx.reply(file=file, embed=base_embed, mention_author=False)
 
     
 async def get_colour(url=None):
@@ -61,14 +61,14 @@ def rows_to_embeds(base_embed, rows, per_row=10) -> typing.List[discord.Embed]:
 
 
 async def page_selector(ctx, item_list, base_embed=None) -> int or None:
+    if len(item_list) == 1:  # Return only item.
+        return 0
+    
     if base_embed is None:
         base_embed = discord.Embed()
         base_embed.title = "Multiple results found."
         base_embed.set_thumbnail(url=ctx.me.avatar_url)
         base_embed.colour = discord.Colour.blurple()
-    
-    if len(item_list) == 1:  # Return only item.
-        return 0
     
     enumerated = [(enum, item) for enum, item in enumerate(item_list)]
     pages = [enumerated[i:i + 10] for i in range(0, len(enumerated), 10)]
@@ -84,7 +84,7 @@ async def page_selector(ctx, item_list, base_embed=None) -> int or None:
     return index
 
 
-async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: int = 60) -> int or None:
+async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: int = 60, header="") -> int or None:
     assert len(embeds) > 0, "No results found."
     page = 0
     
@@ -98,18 +98,17 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 y.set_footer(icon_url=PAGINATION_FOOTER_ICON, text=page_line)
                 
     if not ctx.me.permissions_in(ctx.channel).add_reactions:
-        await ctx.send("I don't have add_reaction permissions so I can only show you the first page of results.")
+        await ctx.reply("I don't have add_reaction permissions so I can only show you the first page of results.")
         if not items:
             return None
     try:
-        m = await ctx.send(embed=embeds[page])
+        m = await ctx.reply(header, embed=embeds[page], mention_author=False)
     except discord.Forbidden:
         try:
-            await ctx.send('I need embed_links permissions to show you these results.')
-            return None
+            await ctx.reply('I need embed_links permissions to show you these results.')
         except discord.Forbidden:
             await ctx.message.add_reaction('⛔')
-            return None
+        return None
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
@@ -212,5 +211,3 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 await m.delete()
                 return None
             await m.edit(embed=embeds[page])
-
-

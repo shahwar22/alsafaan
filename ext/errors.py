@@ -14,7 +14,7 @@ class Errors(commands.Cog):
             if ctx.me.permissions_in(ctx.channel).add_reactions:
                 return await ctx.message.add_reaction('🚫')
             try:
-                return await ctx.send('This command is disabled for this server', delete_after=10)
+                return await ctx.reply('That command has been disabled here.', delete_after=10, mention_author=False)
             except discord.Forbidden:
                 return
 
@@ -49,6 +49,9 @@ class Errors(commands.Cog):
                              f'Or give me the missing permissions and I can perform this action.'
                     e.add_field(name="Fixing This", value=fixing)
         
+        elif isinstance(error, commands.BadUnionArgument):
+            e.description = f"Invalid input {error.param.name} provided."
+        
         elif isinstance(error, commands.MissingRequiredArgument):
             e.description = f"{error.param.name} is a required argument but was not provided"
         
@@ -57,8 +60,14 @@ class Errors(commands.Cog):
         
         elif isinstance(error, commands.CommandOnCooldown):
             e.description = f'⏰ On cooldown for {str(error.retry_after).split(".")[0]}s'
-            return await ctx.send(embed=e, delete_after=5)
-        
+            try:
+                return await ctx.reply(embed=e, delete_after=5, mention_author=False)
+            except discord.Forbidden:
+                try:
+                    return await ctx.message.add_reaction('⏰')
+                except discord.Forbidden:
+                    return
+                
         elif isinstance(error, commands.NSFWChannelRequired):
             e.description = f"🚫 This command can only be used in NSFW channels."
         
@@ -68,7 +77,7 @@ class Errors(commands.Cog):
                 e.title = "Sorry."
                 e.description = "".join(cie.args)
                 try:
-                    return await ctx.send(embed=e)
+                    return await ctx.reply(embed=e, mention_author=False)
                 except discord.Forbidden:
                     try:
                         return await ctx.message.add_reaction('⛔')
@@ -99,16 +108,17 @@ class Errors(commands.Cog):
                   f"{error}\n"
                   f"Context: {ctx.message.content}\n")
         try:
-            await ctx.send(embed=e)
+            await ctx.reply(embed=e, mention_author=False)
+        except discord.NotFound:
+            return  # ?
         except discord.Forbidden:
             try:
-                await ctx.send('An error occurred when running your command.')
+                await ctx.reply('An error occurred when running your command', mention_author=False)
             except discord.Forbidden:
                 return  # well fuck you too then?
         except discord.HTTPException:
             e.description = "An error occurred when running your command."
-            print(e.description)
-            await ctx.send(embed=e)
+            await ctx.reply(embed=e, mention_author=False)
 
             
 def setup(bot):

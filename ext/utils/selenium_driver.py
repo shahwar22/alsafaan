@@ -25,6 +25,13 @@ def spawn_driver():
 
 def fetch(driver, url, xpath, **kwargs):
     # Only fetch if a new page is requested, kills off overhead and also stops annoying "stop refreshing" popups.
+    try:
+        alert = driver.switch_to.alert
+        alert.accept()
+    except Exception as e:
+        print("Selenium driver - Error accepting alert box", e)
+        pass
+    
     if driver.current_url != url:
         driver.get(url)
     
@@ -88,10 +95,10 @@ def get_element(driver, url, xpath, **kwargs):
     return element
 
 
-def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[BytesIO, typing.List[Image.Image], None]:
+def get_image(driver, url, xpath, **kwargs) -> typing.Union[BytesIO, typing.List[Image.Image], None]:
     element = fetch(driver, url, xpath, **kwargs)
-    
-    assert element is not None, failure_message
+    if element is None:
+        return None
     
     if "multi_capture" in kwargs:
         max_iter = 10
@@ -120,9 +127,12 @@ def get_image(driver, url, xpath, failure_message, **kwargs) -> typing.Union[Byt
             driver.execute_script("arguments[0].scrollIntoView();", element)
             im = Image.open(BytesIO(element.screenshot_as_png))
         except NoSuchElementException:
-            element = WebDriverWait(driver, 3).until(ec.visibility_of_element_located((By.XPATH, xpath)))
-            driver.execute_script("arguments[0].scrollIntoView();", element)
-            im = Image.open(BytesIO(element.screenshot_as_png))
+            try:
+                new_element = WebDriverWait(driver, 3).until(ec.visibility_of_element_located((By.XPATH, xpath)))
+                driver.execute_script("arguments[0].scrollIntoView();", new_element)
+                im = Image.open(BytesIO(new_element.screenshot_as_png))
+            except TimeoutException:
+                return None
         
         output = BytesIO()
         im.save(output, 'PNG')

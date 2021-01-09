@@ -46,9 +46,9 @@ class Info(commands.Cog):
         invite_and_stuff += f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
         invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)"
         e.add_field(name="Using me", value=invite_and_stuff, inline=False)
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
     
-    @commands.command()
+    @commands.command(aliases=["perms"])
     @commands.has_permissions(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     async def permissions(self, ctx, *, member: discord.Member = None):
@@ -57,15 +57,15 @@ class Info(commands.Cog):
             member = ctx.author
         permissions = ctx.channel.permissions_for(member)
         permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
-        await ctx.send(f"```py\n{permissions}```")
+        await ctx.reply(f"```py\n{permissions}```", mention_author=False)
     
     @commands.command(aliases=["lastmsg", "lastonline", "lastseen"], usage="seen @user")
     async def seen(self, ctx, target: discord.Member):
         """ Find the last message from a user in this channel """
-        m = await ctx.send("Searching...")
+        m = await ctx.reply("Searching...", mention_author=False)
         with ctx.typing():
             if ctx.author == target:
-                return await ctx.send("Last seen right now, being an idiot.")
+                return await ctx.reply("Last seen right now, being an idiot.", mention_author=True)
             
             async for msg in ctx.channel.history(limit=1000):
                 if msg.author.id == target.id:
@@ -146,7 +146,7 @@ class Info(commands.Cog):
         
         if member.avatar:
             e.set_thumbnail(url=member.avatar_url)
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
     
     @info.command(name='guild', aliases=["server"])
     @commands.guild_only()
@@ -194,7 +194,7 @@ class Info(commands.Cog):
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=codeblocks.time_to_colour(guild.created_at))
         e.set_footer(text=f"\nRegion: {str(guild.region).title()}")
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
     
     @commands.command()
     async def avatar(self, ctx, user: typing.Union[discord.User, discord.Member] = None):
@@ -207,7 +207,7 @@ class Info(commands.Cog):
         e.timestamp = datetime.datetime.now()
         e.description = f"{user.mention}'s avatar"
         e.set_image(url=str(user.avatar_url))
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
 
 
 def setup(bot):

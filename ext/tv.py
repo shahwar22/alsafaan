@@ -34,7 +34,7 @@ class Tv(commands.Cog):
 			if team is not None:
 				item_list = [i for i in self.bot.tv if team in i.lower()]
 				if not item_list:
-					return await ctx.send(f"Could not find a matching team/league for {team}.")
+					return await ctx.reply(f"Could not find a matching team/league for {team}.", mention_author=False)
 				matching_teams = [i for i in self.bot.tv if team in i.lower()]
 				index = await embed_utils.page_selector(ctx, matching_teams)
 				team = matching_teams[index]
@@ -47,7 +47,7 @@ class Tv(commands.Cog):
 			tvlist = []
 			async with self.bot.session.get(em.url) as resp:
 				if resp.status != 200:
-					return await ctx.send(f"🚫 <{em.url}> returned a HTTP {resp.status} error, try again later.")
+					return await ctx.reply(f"🚫 <{em.url}> returned a HTTP {resp.status} error.", mention_author=False)
 				tree = html.fromstring(await resp.text())
 				
 				match_column = 3 if not team else 5
@@ -102,7 +102,7 @@ class Tv(commands.Cog):
 					tvlist.append(f'`{dt}` [{match}]({link})')
 			
 			if not tvlist:
-				return await ctx.send(f"Couldn't find any televised matches happening soon, check online at {em.url}")
+				return await ctx.reply(f"No televised matches found, check online at {em.url}", mention_author=False)
 			dtn = datetime.datetime.now().strftime("%H:%M")
 			
 			em.set_footer(text=f"Time now: {dtn} Your Time:")

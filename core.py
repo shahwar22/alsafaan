@@ -21,6 +21,8 @@ async def run():
         for i in bot.cogs:
             bot.unload_extension(i.name)
         await db.close()
+        bot.fixture_driver.quit()
+        bot.score_driver.quit()
         await bot.logout()
 
 
@@ -28,9 +30,7 @@ class Bot(commands.Bot):
     def __init__(self, **kwargs):
         
         intents = discord.Intents.default()
-        print("You fucking")
         intents.members = True
-        print("Potato")
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
@@ -38,14 +38,13 @@ class Bot(commands.Bot):
             activity=discord.Game(name="Use .tb help"),
             intents=intents
         )
-        print("The fuck did you do?")
         self.fixture_driver = None
+        self.score_driver = None
         self.db = kwargs.pop("database")
         self.credentials = credentials
         self.initialised_at = datetime.utcnow()
-        print("No, seriously")
         self.session = aiohttp.ClientSession(loop=self.loop)
-    
+
     async def on_ready(self):
         print(f'{self.user}: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
         # Startup Modules
@@ -62,8 +61,9 @@ class Bot(commands.Bot):
                 pass
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
+            else:
+                print(f"Loaded extension {c}")
 
 
 loop = asyncio.get_event_loop()
-print("Got event loop")
 loop.run_until_complete(run())

@@ -23,14 +23,14 @@ class NUFC(commands.Cog):
 		if member.id == 272722118192529409:
 			await member.edit(nick=random.choice(self.girls).title())
 	
-	@commands.Cog.listener()
-	async def on_member_update(self, before, after):
-		# Goala 178631560650686465
-		# Keegs 272722118192529409
-		if not before.id == 272722118192529409:
-			return
-		if before.nick != after.nick:
-			await after.edit(nick=random.choice(self.girls).title())
+	# @commands.Cog.listener()
+	# async def on_member_update(self, before, after):
+	# 	# Goala 178631560650686465
+	# 	# Keegs 272722118192529409
+	# 	if not before.id == 272722118192529409:
+	# 		return
+	# 	if before.nick != after.nick:
+	# 		await after.edit(nick=random.choice(self.girls).title())
 	
 	@commands.command(hidden=True)
 	@commands.is_owner()
@@ -40,8 +40,7 @@ class NUFC(commands.Cog):
 		url = "https://www.reddit.com/r/nufcirclejerk/top/?sort=top&t=week"
 		async with self.bot.session.get(url) as resp:
 			if resp.status != 200:
-				await ctx.send(f"{resp.status} error accessing top posts.")
-				return
+				return await ctx.reply(f"{resp.status} error accessing top posts.", mention_author=False)
 			posts = html.fromstring(await resp.text())
 			posts = posts.xpath('.//div[contains(@class, "thing")]')
 			table = [("\💩 r/nufcirclejerk Shitposts of the week roundup."
@@ -63,53 +62,50 @@ class NUFC(commands.Cog):
 				l = link[0]
 				table.append(f"{sc}|[{t}]({c}) | [Direct]({l}) | {authn}")
 			table = "\n".join(table)
-			await ctx.send(table[:2000])
-			await ctx.send(table[2001:4000])
+			
+			# Cap message length at 2000 and then send as separate messages.
+			chunks = [table[i * 2000:(i + 1) * 2000] for i in range((len(table) + 2000 - 1) // 2000 )]
+			for x in chunks:
+				await ctx.reply(x, mention_author=False)
 	
-	# Todo: Cleanup this pile of trash
-	@commands.command(aliases=["colour"], hidden=True)
-	async def color(self, ctx, color):
+	@commands.command(aliases=["color"], hidden=True)
+	async def colour(self, ctx, colour):
 		""" Gives you a colour """
 		if not ctx.channel.id == 744184024079007895:
-			await ctx.message.delete()
-			return await ctx.send(f"{ctx.author.mention} wrong channel.", delete_after=2)
+			return await ctx.reply(f"Wrong channel.", mention_author=True)
 		else:
-			color.strip('#')
-			color.strip('0x')
-			color = color.upper()
-			if len(color) != 6:
-				await ctx.send("6 character RGB value required. <http://htmlcolorcodes.com/color-picker/>")
-				return
+			colour.strip('#')
+			colour.strip('0x')
+			colour = colour.upper()
+			
 			try:
-				rcolor = discord.Colour(int(color, 16))
+				d_colo  = discord.Colour(int(colour, 16))
 			except ValueError:
-				return await ctx.send('Not a valid Hex Code. Check <http://htmlcolorcodes.com/color-picker/>')
+				return await ctx.reply('Invalid colour. Check <http://htmlcolorcodes.com/color-picker/>',
+				                       mention_author=False)
 			
-			e = discord.Embed(color=rcolor)
-			e.description = f"{ctx.author.mention}'s name colour has been updated."
-			e.set_footer(
-				text="Confused? Go to http://htmlcolorcodes.com/color-picker/ pick a colour, and copy the hex code.")
+			e = discord.Embed(color=d_colo)
+			e.description = f"Your colour has been updated."
 			
-			for i in ctx.author.roles:
-				# Check if role hoisted
-				removelist = []
-				if not i.hoist and not i == ctx.guild.default_role:
-					removelist.append(i)
-				await ctx.author.remove_roles(*removelist)
+			remove_list = [i for i in ctx.author.roles if "#" in i.name]
+			await ctx.author.remove_roles(*remove_list)
 			
-			if discord.utils.get(ctx.guild.roles, name=f"#{color}") is None:
-				nrole = await ctx.guild.create_role(name=f"#{color}", reason="coloured names are still cancer",
-				                                    color=rcolor)
-				await ctx.author.add_roles(nrole, reason="Colours are cancer")
+			for i in remove_list:
+				if not i.members:
+					await i.delete()
+			
+			if discord.utils.get(ctx.guild.roles, name=f"#{colour}") is None:
+				role = await ctx.guild.create_role(name=f"#{colour}", reason=f"Colour for {ctx.author}", color=d_colo)
 			else:
-				orole = discord.utils.get(ctx.guild.roles, name=f"#{color}")
-				await ctx.author.add_roles(orole, reason="Coloured names")
-			await ctx.send(embed=e)
+				role = discord.utils.get(ctx.guild.roles, name=f"#{colour}")
+			
+			await ctx.author.add_roles(role, reason="Apply colour role")
+			await ctx.reply(embed=e)
 	
 	@commands.command(hidden=True)
 	@commands.is_owner()
 	async def shake(self, ctx):
-		await ctx.send(
+		await ctx.reply(
 			"Well to start off with anyone who thinks you can trick women into sleeping with you, don't understand "
 			"game, and are generally the ones who embarrass themselves. In a social context women are a lot cleverer "
 			"then men (in general) and understand what's going on when it comes to male female dynamic, that's why you "
@@ -125,28 +121,28 @@ class NUFC(commands.Cog):
 			"Would you buy your friend a meal or flowers? \n\nNearly every women you have encountered (in your "
 			"demographic), even on a subconscious level has judged whether they find you attractive or not (not just "
 			"your looks), she's probably even ranked you compared to other guys she's met. That's just the dynamic "
-			"between men and women.")
+			"between men and women.", mention_author=False)
 	
-	@commands.group(invoke_without_command=True, aliases=["stream"])
+	@commands.group(invoke_without_command=True, aliases=["stream"], hidden=True)
 	async def streams(self, ctx):
 		""" List alls for the match added by users. """
 		try:
 			if not self.bot.streams[f"{ctx.guild.id}"]:
-				return await ctx.send("Nobody has added any streams yet.")
+				return await ctx.reply("Nobody has added any streams yet.", mention_author=False)
 		except KeyError:
 			self.bot.streams[f"{ctx.guild.id}"] = []
-			return await ctx.send("Nobody has added any streams yet.")
+			return await ctx.reply("Nobody has added any streams yet.", mention_author=False)
 		output = "**Streams: **\n"
 		for c, v in enumerate(self.bot.streams[f"{ctx.guild.id}"], 1):
 			output += f"{c}: {v}\n"
-		await ctx.send(output)
+		await ctx.reply(output, mention_author=True)
 	
 	@streams.command(name="add")
 	async def stream_add(self, ctx, *, stream):
 		""" Add a stream to the stream list. """
 		stream = discord.utils.escape_mentions(stream)
 		if not "://" in stream:
-			return await ctx.send('That doesn\'t look like a stream.')
+			return await ctx.reply("That doesn't look like a stream.")
 		# Hide link preview.
 		if "http" in stream:
 			stream = f"<{stream}>"
@@ -155,12 +151,12 @@ class NUFC(commands.Cog):
 		try:
 			for i in self.bot.streams[f"{ctx.guild.id}"]:
 				if stream in i:
-					return await ctx.send("Already in stream list.")
+					return await ctx.reply("Already in stream list.", mention_author=False)
 		except KeyError:
 			self.bot.streams[f"{ctx.guild.id}"] = [stream]
 		else:
 			self.bot.streams[f"{ctx.guild.id}"].append(f"{stream} (added by {ctx.author.name})")
-		await ctx.send(f"Added {stream} to stream list.")
+		await ctx.reply(f"Added {stream} to stream list.", mention_author=False)
 	
 	@streams.command(name="del")
 	async def stream_del(self, ctx, *, num: int):
@@ -168,26 +164,26 @@ class NUFC(commands.Cog):
 		num = num - 1
 		if not ctx.author.name in self.bot.streams[f"{ctx.guild.id}"][num]:
 			if not ctx.author.permissions_in(ctx.channel).manage_messages:
-				return await ctx.send("You didn't add that stream", delete_after=5)
+				return await ctx.reply("You didn't add that stream", delete_after=5, mention_author=False)
 		removed = self.bot.streams[f"{ctx.guild.id}"].pop(num)
-		await ctx.send(f"{removed} removed from streams list.")
+		await ctx.reply(f"<{removed}> removed from streams list.")
 	
 	@streams.command(name="clear")
 	@commands.has_permissions(manage_messages=True)
 	async def stream_clear(self, ctx):
 		self.bot.streams[f"{ctx.guild.id}"] = []
-		await ctx.send("Streams cleared.")
+		await ctx.reply("Streams cleared.", mention_author=False)
 	
 	@commands.command(hidden=True)
 	async def gherkin(self, ctx):
 		""" DON'T LET ME GOOOOOO AGAIN"""
-		await ctx.send("https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
+		await ctx.reply("https://www.youtube.com/watch?v=L4f9Y-KSKJ8", mention_author=False)
 	
 	@commands.command(hidden=True)
 	@commands.is_owner()
 	async def metro(self, ctx):
 		""" GET. OFF. THE METRO. NOOOOOOOOOOW. """
-		await ctx.send(file=discord.File('Get off the metro now.mp3'))
+		await ctx.reply(file=discord.File('Get off the metro now.mp3'), mention_author=False)
 	
 	@commands.command()
 	async def mbemba(self, ctx):
@@ -304,11 +300,12 @@ class NUFC(commands.Cog):
 			"league fixture and winning 5-0"
 		]
 		this = random.choice(facts)
-		await ctx.send(f"<:mbemba:332196308825931777> Mbemba {this}?")
+		await ctx.reply(f"<:mbemba:332196308825931777> Mbemba {this}?", mention_author=False)
 	
 	@commands.command()
 	async def radio(self, ctx):
-		await ctx.send("<:badge:332195611195605003>  Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
+		await ctx.reply("<:badge:332195611195605003>  Radio Coverage: https://www.nufc.co.uk/liveaudio.html",
+		                mention_author=False)
 
 
 def setup(bot):

@@ -20,6 +20,24 @@ sl_lock = asyncio.Semaphore()
 # TODO: Find somewhere to get goal clips from.
 
 
+async def processing_update(message, new_text):  # DRY
+    try:
+        await message.edit(content=new_text)
+    except discord.NotFound:
+        try:
+            message = await message.reply(new_text, mention_author=False)
+        except discord.NotFound:
+            return None
+    return message
+
+
+async def cleanup(message):  # DRY
+    try:  # Clean up
+        await message.delete()
+    except discord.NotFound:
+        pass
+
+
 class Fixtures(commands.Cog):
     """ Lookups for Past, Present and Future football matches. """
     
@@ -47,7 +65,7 @@ class Fixtures(commands.Cog):
                     return fsr
             else:
                 err += f"\nA default team or league can be set by moderators using {ctx.prefix}default)"
-            await status_message.edit(text=err)
+            await processing_update(status_message, err)
             return None
 
         search_results = await football.get_fs_results(qry)
@@ -56,7 +74,7 @@ class Fixtures(commands.Cog):
             output = f'No search results found for search query: {qry}'
             if mode is not None:
                 output += f" ({mode})"
-            await status_message.edit(text=output)
+            await processing_update(status_message, output)
             return None
         
         pt = 0 if mode == "league" else 1 if mode == "team" else None  # Mode is a hard override.
@@ -67,7 +85,7 @@ class Fixtures(commands.Cog):
         index = await embed_utils.page_selector(ctx, item_list)
 
         if index is None:
-            await status_message.edit(text='Result selection timed out or cancelled.')
+            await processing_update(status_message, 'Result selection timed out or cancelled.')
             return None
         return search_results[index]
 
@@ -87,7 +105,6 @@ class Fixtures(commands.Cog):
         base_embed.set_footer(text="If you did not want a live game, click the '🚫' reaction to search all teams")
         base_embed.title = "Live matches found!"
         
-    
         pickers = [str(i) for i in matches]
         index = await embed_utils.page_selector(ctx, pickers, base_embed=base_embed)
         if index is None:
@@ -121,31 +138,33 @@ class Fixtures(commands.Cog):
         # Validate
         mode = mode.lower()
         if mode not in ["league", "team"]:
-            return await ctx.send(':no_entry_sign: Invalid default type specified, valid types are "league" or "team"')
+            return await ctx.reply(':no_entry_sign: Invalid default type specified, valid types are "league" or "team"',
+                                   mention_author=True)
         db_mode = "default_team" if mode == "team" else "default_league"
     
         if qry is None:
             connection = await self.bot.db.acquire()
-            record = await connection.fetchrow("""
-                SELecT * FROM scores_settings
-                WHERE (guild_id) = $1
-                AND (default_league is NOT NULL OR default_team IS NOT NULL)
-            """, ctx.guild.id)
+            async with connection.transaction():
+                record = await connection.fetchrow("""
+                    SELecT * FROM scores_settings
+                    WHERE (guild_id) = $1
+                    AND (default_league is NOT NULL OR default_team IS NOT NULL)
+                """, ctx.guild.id)
             await self.bot.db.release(connection)
             if not record:
-                return await ctx.send(f"{ctx.guild.name} does not currently have a default team or league set.")
-            league = record["default_league"] if record["default_league"] is not None else "not set."
-            output = f"Your default league is: <{league}>"
-            team = record["default_team"] if record["default_team"] is not None else "not set."
-            output += f"\nYour default team is: <{team}>"
-        
-            return await ctx.send(output)
+                return await ctx.reply(f"{ctx.guild.name} does not currently have a default team or league set.",
+                                       mention_author=False)
+            
+            league = "not set." if record["default_league"] is None else record["default_league"]
+            team   = "not set." if record["default_team"]   is None else record["default_team"]
+            return await ctx.reply(f"Your default league is: <{league}>\nYour default team is: <{team}>",
+                                   mention_author=False)
     
         if qry.lower() == "none":  # Intentionally set Null for DB entry
             url = None
         else:  # Find
-            await ctx.send(f'Searching for {qry}...', delete_after=5)
-            fsr = await self._search(ctx, qry, mode=mode)
+            m = await ctx.reply(f'Searching for {qry}...', mention_author=False)
+            fsr = await self._search(ctx, qry, mode=mode, status_message=m)
         
             if fsr is None:
                 return
@@ -153,7 +172,6 @@ class Fixtures(commands.Cog):
             url = fsr.link
     
         connection = await self.bot.db.acquire()
-    
         async with connection.transaction():
             await connection.execute(
                 f"""INSERT INTO scores_settings (guild_id,{db_mode})
@@ -163,23 +181,20 @@ class Fixtures(commands.Cog):
                     {db_mode} = $2
                 WHERE excluded.guild_id = $1
             """, ctx.guild.id, url)
-    
         await self.bot.db.release(connection)
     
-        if qry is not None:
-            return await ctx.send(f'Your commands will now use <{url}> as a default {mode}')
+        if url is None:
+            return await ctx.reply(f'Your commands will no longer use a default {mode}', mention_author=False)
         else:
-            return await ctx.send(f'Your commands will no longer use a default {mode}')
-    
+            return await ctx.reply(f'Your commands will now use <{url}> as a default {mode}', mention_author=False)
+
     # Team OR League specific
     @commands.command(usage="[league or team to search for or leave blank to use server's default setting]")
     async def table(self, ctx, *, qry: commands.clean_content = None):
         """ Get table for a league """
         async with ctx.typing():
-            m = await ctx.send("Searching...")
-            fsr = None
-            if qry is not None:  # Grab from live games first, but only if a query is provided.
-                fsr = await self._pick_game(ctx, str(qry), search_type="team")
+            m = await ctx.reply("Searching...", mention_author=False)
+            fsr = await self._pick_game(ctx, str(qry), search_type="team") if qry is not None else None
 
             if fsr is None:
                 fsr = await self._search(ctx, qry, status_message=m)
@@ -187,8 +202,8 @@ class Fixtures(commands.Cog):
             if fsr is None:
                 return
             
-            dtn = datetime.datetime.now().ctime()
-            await m.edit(text="Processing...")
+            m = await processing_update(m, "Processing...")
+            
             if isinstance(fsr, football.Team):  # Select from team's leagues.
                 async with sl_lock:
                     choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver)
@@ -200,20 +215,25 @@ class Fixtures(commands.Cog):
                 fsr = choices[index]
 
             async with sl_lock:
-                image = await self.bot.loop.run_in_executor(None, fsr.table, self.bot.fixture_driver)
+                image = await self.bot.loop.run_in_executor(None, fsr.get_table, self.bot.fixture_driver)
             
             embed = await fsr.base_embed
-            embed.description = f"```yaml\n[{dtn}]```"
+            if image is None:
+                embed.description = "No table found."
+                return await m.edit(content="", embed=embed)
             
+            dtn = datetime.datetime.now().ctime()
+            embed.description = f"```yaml\n[{dtn}]```"
             fn = f"Table-{qry}-{dtn}.png".strip()
-            await m.delete()
+            
+            await cleanup(m)
             await embed_utils.embed_image(ctx, embed, image, filename=fn)
 
     @commands.command(aliases=['draw'])
     async def bracket(self, ctx, *, qry: commands.clean_content = None):
         """ Get bracket for a tournament """
         async with ctx.typing():
-            m = await ctx.send("Searching...")
+            m = await ctx.reply("Searching...", mention_author=False)
             fsr = None
             if qry is not None:  # Grab from live games first, but only if a query is provided.
                 fsr = await self._pick_game(ctx, str(qry), search_type="team")
@@ -223,8 +243,8 @@ class Fixtures(commands.Cog):
     
             if fsr is None:
                 return
-            
-            await m.edit(text="Processing...")
+
+            m = await processing_update(m, "Processing...")
 
             if isinstance(fsr, football.Team):  # Select from team's leagues.
                 async with sl_lock:
@@ -236,118 +256,145 @@ class Fixtures(commands.Cog):
                 if index is None:
                     return  # rip
                 fsr = choices[index]
-                
-            embed = await fsr.base_embed
+                embed = await fsr.base_embed
 
             async with sl_lock:
                 image = await self.bot.loop.run_in_executor(None, fsr.bracket, self.bot.fixture_driver)
-                
-            fn = f"Bracket-{qry}-{datetime.datetime.now().ctime()}.png".strip()
-            await embed_utils.embed_image(ctx, embed, image, filename=fn)
+
+            if image is None:  # Provide error instead of
+                embed.description = "No bracket found."
+                return await m.edit(content="", embed=embed)
+            await cleanup(m)
+        
+        fn =f"Bracket-{qry}-{datetime.datetime.now().ctime()}.png".strip()
+        await embed_utils.embed_image(ctx, embed, image, filename=fn)
 
     @commands.command(aliases=['fx'], usage="<Team or league name to search for>")
     async def fixtures(self, ctx, *, qry: commands.clean_content = None):
         """ Fetch upcoming fixtures for a team or league.
         Navigate pages using reactions. """
-        m = await ctx.send("Searching...")
-        fsr = await self._search(ctx, qry, status_message=m)
+        async with ctx.typing():
+            m = await ctx.reply("Searching...", mention_author=False)
+            fsr = await self._search(ctx, qry, status_message=m)
+    
+            if fsr is None:
+                return
 
-        if fsr is None:
-            return
-        
-        await m.edit(text="Processing...")
-        async with sl_lock:
-            fx = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/fixtures')
-        fixtures = [str(i) for i in fx]
-        embed = await fsr.base_embed
-        embed.title = f"≡ Fixtures for {embed.title}" if embed.title else "≡ Fixtures "
-        
-        embeds = embed_utils.rows_to_embeds(embed, fixtures)
-        await m.delete()
+            m = await processing_update(m, "Processing...")
+            
+            async with sl_lock:
+                fx = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/fixtures')
+            fixtures = [str(i) for i in fx]
+            embed = await fsr.base_embed
+            embed.title = f"≡ Fixtures for {embed.title}" if embed.title else "≡ Fixtures "
+            
+            embeds = embed_utils.rows_to_embeds(embed, fixtures)
+            
+            await cleanup(m)
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command(aliases=['rx'], usage="<Team or league name to search for>")
     async def results(self, ctx, *, qry: commands.clean_content = None):
         """ Get past results for a team or league.
         Navigate pages using reactions. """
-        m = await ctx.send("Searching...")
-        fsr = await self._search(ctx, qry, status_message=m)
+        async with ctx.typing():
+            m = await ctx.reply("Searching...", mention_author=False)
+            fsr = await self._search(ctx, qry, status_message=m)
+    
+            if fsr is None:
+                return
 
-        if fsr is None:
-            return
-
-        await m.edit(text="Processing...")
-        
-        async with sl_lock:
-            results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/results')
-        results = [str(i) for i in results]
-        embed = await fsr.base_embed
-        embed.title = f"≡ Results for {embed.title}" if embed.title else "≡ Results "
-        embeds = embed_utils.rows_to_embeds(embed, results)
-        await m.delete()
+            m = await processing_update(m, "Processing...")
+            
+            async with sl_lock:
+                results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, '/results')
+            results = [str(i) for i in results]
+            embed = await fsr.base_embed
+            embed.title = f"≡ Results for {embed.title}" if embed.title else "≡ Results "
+            embeds = embed_utils.rows_to_embeds(embed, results)
+            
+            await cleanup(m)
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command()
     async def stats(self, ctx, *, qry: commands.clean_content):
         """ Look up the stats for one of today's games """
         async with ctx.typing():
-            m = await ctx.send('Searching...')
+            m = await ctx.reply("Searching...", mention_author=False)
             game = await self._pick_game(ctx, str(qry), search_type="team")
             
             # TODO: Pick game for all previous results.
             if game is None:
-                await m.edit(text=f"Unable to find a live match for {qry}")
-                return
-            else:
-                await m.edit(text="Processing...")
+                return await m.edit(content=f"Unable to find a live match for {qry}")
+
+            m = await processing_update(m, "Processing...")
             
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.stats_image, self.bot.fixture_driver)
+                image = await self.bot.loop.run_in_executor(None, game.stats_image, self.bot.fixture_driver)
+            
             embed = await game.base_embed
-            await m.delete()
-            await embed_utils.embed_image(ctx, embed, file)
+            if image is None:
+                embed.description = "No stats found."
+                return await m.edit(content="", embed=embed)
+            
+            await cleanup(m)
+        await embed_utils.embed_image(ctx, embed, image)
 
     @commands.command(usage="<team to search for>", aliases=["formations", "lineup", "lineups"])
     async def formation(self, ctx, *, qry: commands.clean_content):
         """ Get the formations for the teams in one of today's games """
         async with ctx.typing():
-            m = await ctx.send('Searching...')
+            m = await ctx.reply("Searching...", mention_author=False)
             game = await self._pick_game(ctx, str(qry), search_type="team")
             
             # TODO: Pick game for all previous results
             if game is None:
-                await m.edit(text=f"Unable to find a match for {qry}")
+                await m.edit(content=f"Unable to find a match for {qry}")
                 return
 
+            m = await processing_update(m, "Processing...")
+            
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.formation, self.bot.fixture_driver)
+                image = await self.bot.loop.run_in_executor(None, game.get_formation, self.bot.fixture_driver)
             embed = await game.base_embed
-            await m.delete()
-            await embed_utils.embed_image(ctx, embed, file)
+
+            if image is None:
+                embed.description = "No formation data found."
+                return await m.edit(content="", embed=embed)
+
+            await cleanup(m)
+        await embed_utils.embed_image(ctx, embed, image)
     
     @commands.command()
     async def summary(self, ctx, *, qry: commands.clean_content):
         """ Get a summary for one of today's games. """
         async with ctx.typing():
-            m = await ctx.send('Searching...')
+            m = await ctx.reply("Searching...", mention_author=False)
             game = await self._pick_game(ctx, str(qry), search_type="team")
     
             # TODO: Pick game for all previous results
             if game is None:
-                await m.edit(text=f"Unable to find a match for {qry}")
+                await m.edit(content=f"Unable to find a match for {qry}")
                 return
 
+            m = await processing_update(m, "Processing...")
+            
             async with sl_lock:
-                file = await self.bot.loop.run_in_executor(None, game.summary, self.bot.fixture_driver)
+                image = await self.bot.loop.run_in_executor(None, game.summary, self.bot.fixture_driver)
+                
             embed = await game.base_embed
-            await m.delete()
-            await embed_utils.embed_image(ctx, embed, file)
+            if image is None:
+                embed.description = "No summary found."
+                return await m.edit(content="", embed=embed)
+
+            await cleanup(m)
+        await embed_utils.embed_image(ctx, embed, image)
 
     @commands.command(aliases=["form"], usage="<Team name to search for>")
     async def h2h(self, ctx, *, qry: commands.clean_content):
         """ Get Head to Head data for a team's next fixture """
         async with ctx.typing():
-            m = await ctx.send("Searching...")
+            m = await ctx.reply("Searching...", mention_author=False)
             fsr = None
             if qry is not None:  # Grab from live games first, but only if a query is provided.
                 fsr = await self._pick_game(ctx, str(qry), search_type="team")
@@ -357,8 +404,9 @@ class Fixtures(commands.Cog):
     
             if fsr is None:
                 return
-    
-            await m.edit(text="Processing...")
+
+            m = await processing_update(m, "Processing...")
+            
             if isinstance(fsr, football.Team):  # Select from team's leagues.
                 async with sl_lock:
                     choices = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver)
@@ -370,28 +418,30 @@ class Fixtures(commands.Cog):
                 fsr = choices[index]
         
             async with sl_lock:
-                fx = await self.bot.loop.run_in_executor(None, fsr.next_fixture, self.bot.fixture_driver, "/fixtures")
-                h2h = await self.bot.loop.run_in_executor(None, fx.head_to_head, self.bot.fixture_driver)
+                h2h = await self.bot.loop.run_in_executor(None, fsr.head_to_head, self.bot.fixture_driver)
         
-            e = await fx.base_embed
-            e.description = f"Head to Head data for {fx.home} vs {fx.away}"
-            for k, v in h2h.items():
+            e = await fsr.base_embed
+            e.description = f"Head to Head data for {fsr.home} vs {fsr.away}"
             
+            for k, v in h2h.items():
                 e.add_field(name=k, value="\n".join([str(i) for i in v]), inline=False)
-            await ctx.send(embed=e)
+            
+            await cleanup(m)
+        await ctx.reply(embed=e, mention_author=False)
 
     # Team specific.
     @commands.command(aliases=["suspensions"], usage="<Team name to search for>")
     async def injuries(self, ctx, *, qry: commands.clean_content = None):
         """ Get a team's current injuries """
         async with ctx.typing():
-            m = await ctx.send("Searching...")
+            m = await ctx.reply("Searching...", mention_author=False)
             fsr = await self._search(ctx, qry, status_message=m, mode="team")
         
             if fsr is None:
                 return
+
+            m = await processing_update(m, "Processing...")
             
-            await m.edit(text="Processing...")
             async with sl_lock:
                 players = await self.bot.loop.run_in_executor(None, fsr.players, self.bot.fixture_driver)
 
@@ -400,20 +450,21 @@ class Fixtures(commands.Cog):
             players = players if players else ['No injuries found']
             embed.title = f"≡ Injuries for {embed.title}" if embed.title else "≡ Injuries "
             embeds = embed_utils.rows_to_embeds(embed, players)
-            await m.delete()
-            await embed_utils.paginate(ctx, embeds)
+            await cleanup(m)
+        await embed_utils.paginate(ctx, embeds)
     
     @commands.command(aliases=["team", "roster"], usage="<Team name to search for>")
     async def squad(self, ctx, *, qry: commands.clean_content = None):
         """ Lookup a team's squad members """
         async with ctx.typing():
-            m = await ctx.send("Searching...")
+            m = await ctx.reply("Searching...", mention_author=False)
             fsr = await self._search(ctx, qry, status_message=m, mode="team")
     
             if fsr is None:
                 return
-    
-            await m.edit(text="Processing...")
+
+            m = await processing_update(m, "Processing...")
+            
             async with sl_lock:
                 players = await self.bot.loop.run_in_executor(None, fsr.players, self.bot.fixture_driver)
             srt = sorted(players, key=lambda x: x.number)
@@ -421,20 +472,19 @@ class Fixtures(commands.Cog):
             embed.title = f"≡ Squad for {embed.title}" if embed.title else "≡ Squad "
             players = [f"`{str(i.number).rjust(2)}`: {i.flag} [{i.name}]({i.link}) {i.position}{i.injury}" for i in srt]
             embeds = embed_utils.rows_to_embeds(embed, players)
-            await m.delete()
-            await embed_utils.paginate(ctx, embeds)
+            
+            await cleanup(m)
+        await embed_utils.paginate(ctx, embeds)
     
     @commands.command(invoke_without_command=True, aliases=['sc'], usage="<team or league to search for>")
     async def scorers(self, ctx, *, qry: commands.clean_content = None):
         """ Get top scorers from a league, or search for a team and get their top scorers in a league. """
-        m = await ctx.send("Searching...")
+        m = await ctx.reply("Searching...", mention_author=False)
         fsr = await self._search(ctx, qry, status_message=m)
-
         if fsr is None:
             return
 
-        await m.edit(text="Processing...")
-
+        m = await processing_update(m, "Processing...")
         embed = await fsr.base_embed
         
         if isinstance(fsr, football.Competition):
@@ -461,6 +511,8 @@ class Fixtures(commands.Cog):
                 else f"Top Scorers in {choices[index]}"
         
         embeds = embed_utils.rows_to_embeds(embed, players)
+        
+        await cleanup(m)
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command(usage="<league to search for>")
@@ -516,7 +568,8 @@ class Fixtures(commands.Cog):
         if index is None:
             return  # Timeout or abort.
     
-        await ctx.send(embed=await stadiums[index].to_embed)
+        await ctx.reply(embed=await stadiums[index].to_embed, mention_author=False)
+
 
 def setup(bot):
     bot.add_cog(Fixtures(bot))

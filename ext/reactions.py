@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 from collections import Counter
-import datetime
 
 
 class GlobalChecks(commands.Cog):

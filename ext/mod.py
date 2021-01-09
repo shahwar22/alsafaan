@@ -21,7 +21,6 @@ async def get_prefix(bot, message):
         pref = [".tb "]
     return commands.when_mentioned_or(*pref)(bot, message)
 
-
 class Mod(commands.Cog):
     """ Guild Moderation Commands """
     
@@ -45,15 +44,12 @@ class Mod(commands.Cog):
         ctx = await self.bot.get_context(message)
         if ctx.message.content == ctx.me.mention:
             if message.guild is None:
-                return await ctx.send(ctx.author.mention)
+                return await ctx.reply(f'What?')
             try:
-                await ctx.send(f"Forgot your prefixes? They're ```css"
-                               f"\n{', '.join(self.bot.prefix_cache[message.guild.id])}```")
+                await ctx.reply(f"Forgot your prefixes? They're ```css"
+                               f"\n{', '.join(self.bot.prefix_cache[message.guild.id])}```", mention_author=True)
             except discord.Forbidden:
-                try:
-                    await message.add_reaction()
-                except discord.Forbidden:
-                    return
+                return
     
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -105,7 +101,7 @@ class Mod(commands.Cog):
     @commands.has_permissions(kick_members=True)
     async def leave(self, ctx):
         """ Politely ask me to leave the server. """
-        m = await ctx.send('Are you sure you want me to go? All of your settings will be wiped.')
+        m = await ctx.reply('Are you sure you want me to go? All of your settings will be wiped.', mention_author=True)
         await embed_utils.bulk_react(ctx, m, ['✅', '🚫'])
 
         def check(reaction, user):
@@ -116,14 +112,14 @@ class Mod(commands.Cog):
         try:
             res = await self.bot.wait_for("reaction_add", check=check, timeout=30)
         except asyncio.TimeoutError:
-            return await ctx.send("Response timed out after 30 seconds, I'm staying.", delete_after=15)
+            return await ctx.reply("Response timed out after 30 seconds, I will stay for now.", mention_author=True)
         res = res[0]
 
         if res.emoji.startswith('✅'):
-            await ctx.send('Farewell!')
+            await ctx.reply('Farewell!', mention_author=False)
             await ctx.guild.leave()
         else:
-            await ctx.send("Okay, I'll stick around a bit longer then.")
+            await ctx.reply("Okay, I'll stick around a bit longer then.", mention_author=False)
             await m.remove_reaction('✅', ctx.me)
 
     @commands.command(aliases=['nick'])
@@ -131,6 +127,7 @@ class Mod(commands.Cog):
     async def name(self, ctx, *, new_name: str):
         """ Rename the bot for your server. """
         await ctx.me.edit(nick=new_name)
+        await ctx.reply(f"My new name is {new_name} on your server.", mention_author=False)
     
     @commands.command(usage="say <Channel (optional)< <what you want the bot to say>")
     @commands.check(me_or_mod)
@@ -150,7 +147,7 @@ class Mod(commands.Cog):
     async def topic(self, ctx, *, new_topic):
         """ Set the topic for the current channel """
         await ctx.channel.edit(topic=new_topic)
-        await ctx.send(f"Topic changed to: '{new_topic}'")
+        await ctx.reply(f"Topic changed to: '{new_topic}'", mention_author=False)
     
     @commands.command(usage="pin <(Message ID you want pinned) or (new message to pin.)>")
     @commands.has_permissions(manage_channels=True)
@@ -160,9 +157,8 @@ class Mod(commands.Cog):
         if isinstance(message, int):
             message = await ctx.channel.fetch_message(message)
         elif isinstance(message, str):
-            message = await ctx.send(message)
+            message = await ctx.reply(message, mention_author=True)
         await message.pin()
-        await ctx.message.delete()
     
     @commands.command(usage="rename <member> <new name>")
     @commands.has_permissions(manage_nicknames=True)
@@ -172,11 +168,11 @@ class Mod(commands.Cog):
         try:
             await member.edit(nick=nickname)
         except discord.Forbidden:
-            await ctx.send("⛔ I can't change that member's nickname.")
+            await ctx.reply("⛔ I can't change that member's nickname.", mention_author=True)
         except discord.HTTPException:
-            await ctx.send("❔ Member edit failed.")
+            await ctx.reply("❔ Member edit failed.", mention_author=True)
         else:
-            await ctx.send(f"{member.mention} has been renamed.")
+            await ctx.reply(f"{member.mention} has been renamed.", mention_author=False)
     
     @commands.command(usage="delete_empty_roles")
     @commands.has_permissions(manage_roles=True)
@@ -188,28 +184,34 @@ class Mod(commands.Cog):
         for i in targets:
             deleted.append(i.name)
             await i.delete()
-        await ctx.send(f'Found and deleted {len(deleted)} empty roles: {", ".join(deleted)}')
+        await ctx.reply(f'Found and deleted {len(deleted)} empty roles: {", ".join(deleted)}', mention_author=False)
     
     @commands.command(usage="kick <@member1  @member2 @member3> <reason>")
     @commands.has_permissions(kick_members=True)
     @commands.bot_has_permissions(kick_members=True)
     async def kick(self, ctx, members: commands.Greedy[discord.Member], *, reason="unspecified reason."):
         """ Kicks the user from the server """
-        replies = []
         if not members:
             return
+        
+        success = []
+        fail = []
         
         for i in members:
             try:
                 await i.kick(reason=f"{ctx.author.name}: {reason}")
             except discord.Forbidden:
-                replies.append(f"⛔ I can't kick {i.mention}.")
+                fail.append(f"{i} (Higher Role)")
             except discord.HTTPException:
-                replies.append(f'⚠ Kicking failed for {ctx.author.name}.')
+                fail.append(f"{i.mention} (Error)")
             else:
-                replies.append(f"✅ {i.mention} was kicked by {ctx.author} for: \"{reason}\".")
-        await ctx.send("\n".join(replies))
-    
+                success.append(i.mention)
+        
+        if success:
+            await ctx.reply(f"✅ {', '.join(success)} kicked for: \"{reason}\".", mention_author=False)
+        if fail:
+            await ctx.reply(f"⚠ Kicking failed for {', '.join(fail)}.", mention_author=True)
+            
     @commands.command(usage="ban <@member1 [user_id2, @member3, @member4]> "
                             "<(Optional: Days to delete messages from)> <(Optional: reason)>",
                       aliases=["hackban"])
@@ -218,7 +220,6 @@ class Mod(commands.Cog):
     async def ban(self, ctx, targets: commands.Greedy[typing.Union[discord.Member, int]],
                   delete_days: typing.Optional[int] = 1, *, reason="Not specified"):
         """ Bans a list of members (or User IDs) from the server, deletes all messages for the last x days """
-        replies = []
         for i in targets:
             if isinstance(i, discord.Member):
                 try:
@@ -226,13 +227,13 @@ class Mod(commands.Cog):
                     outstr = f"☠ {i.mention} was banned by {ctx.author} for: \"{reason}\""
                     if delete_days:
                         outstr += f", messages from last {delete_days} day(s) were deleted."
-                    replies.append(outstr)
+                    await ctx.reply(outstr, mention_author=False)
                 except discord.Forbidden:
-                    replies.append(f"⛔ Sorry, I can't ban {i.mention}.")
+                    await ctx.reply(f"⛔ Sorry, I can't ban {i.mention}.", mention_author=True)
                 except discord.HTTPException:
-                    replies.append(f"⚠ Banning failed for {i.mention}.")
+                    await ctx.reply(f"⚠ Banning failed for {i.mention}.", mention_author=True)
                 except Exception as e:
-                    replies.append(f"⚠ Banning failed for {i.mention}.")
+                    await ctx.reply(f"⚠ Banning failed for {i.mention}.", mention_author=True)
                     print("Failed while banning member\n", e)
             else:
                 try:
@@ -241,14 +242,12 @@ class Mod(commands.Cog):
                     outstr = f"☠ UserID {i} {target} was banned for reason: \"{reason}\""
                     if delete_days:
                         outstr += f", messages from last {delete_days} day(s) were deleted."
-                    replies.append(outstr)
+                    await ctx.reply(outstr, mention_author=False)
                 except discord.HTTPException:
-                    replies.append(f"⚠ Banning failed for UserID# {i}.")
+                    await ctx.reply(f"⚠ Banning failed for UserID# {i}.", mention_author=True)
                 except Exception as e:
-                    replies.append(f"⚠ Banning failed for UserID# {i}.")
+                    await ctx.reply(f"⚠ Banning failed for UserID# {i}.", mention_author=True)
                     print("Failed while banning ID#.\n", e)
-        if replies:
-            await ctx.send("\n".join(replies))
     
     @commands.command(usage="unban <UserID of member: e.g. 13231232131> ")
     @commands.has_permissions(ban_members=True)
@@ -262,11 +261,11 @@ class Mod(commands.Cog):
             try:
                 await self.bot.http.unban(who, ctx.guild.id)
             except discord.Forbidden:
-                await ctx.send("⛔ I can't unban that user.")
+                await ctx.reply("⛔ I can't unban that user.", mention_author=True)
             except discord.HTTPException:
-                await ctx.send("❔ Unban failed.")
+                await ctx.reply("❔ Unban failed.", mention_author=True)
             else:
-                await ctx.send(f"🆗 {who} was unbanned")
+                await ctx.reply(f"🆗 {who} was unbanned", mention_author=False)
         else:
             try:
                 un, discrim = who.split('#')
@@ -275,24 +274,24 @@ class Mod(commands.Cog):
                         try:
                             await self.bot.http.unban(i.user.id, ctx.guild.id)
                         except discord.Forbidden:
-                            await ctx.send("⛔ I can't unban that user.")
+                            await ctx.reply("⛔ I can't unban that user.", mention_author=True)
                         except discord.HTTPException:
-                            await ctx.send("❔ Unban failed.")
+                            await ctx.reply("❔ Unban failed.", mention_author=True)
                         else:
-                            await ctx.send(f"🆗 {who} was unbanned")
-                        return
+                            await ctx.reoky(f"🆗 {who} was unbanned", mention_author=False)
+                        return  # Stop iterating when found.
             except ValueError:
                 for i in await ctx.guild.bans():
                     if i.user.name == who:
                         try:
                             await self.bot.http.unban(i.user.id, ctx.guild.id)
                         except discord.Forbidden:
-                            await ctx.send("⛔ I can\'t unban that user.")
+                            await ctx.reply(f"⛔ I can't unban {i}.", mention_author=True)
                         except discord.HTTPException:
-                            await ctx.send("❔ Unban failed.")
+                            await ctx.reply(f"❔ Unban failed for {i.user}", mention_author=True)
                         else:
-                            await ctx.send(f"🆗 {i.user} was unbanned")
-                    return
+                            await ctx.reply(f"🆗 {i.user} was unbanned", mention_author=False)
+                        return  # Stop iterating when found.
     
     @commands.command(aliases=['bans'])
     @commands.has_permissions(view_audit_log=True)
@@ -325,7 +324,8 @@ class Mod(commands.Cog):
         for i in members:
             await channel.set_permissions(i, overwrite=ow)
         
-        await ctx.send(f'Blocked {" ,".join([i.mention for i in members])} from {channel.mention}')
+        await ctx.reply(f'Blocked {" ,".join([i.mention for i in members])} from {channel.mention}',
+                        mention_author=False)
 
     @commands.command(usage="unblock <Optional: #channel> <@member1 @member2> <Optional: reason>")
     @commands.has_permissions(manage_channels=True)
@@ -337,16 +337,14 @@ class Mod(commands.Cog):
         for i in members:
             await channel.set_permissions(i, overwrite=None)
 
-        await ctx.send(f'Unblocked {" ,".join([i.mention for i in members])} from {channel.mention}')
+        await ctx.reply(f'Unblocked {" ,".join([i.mention for i in members])} from {channel.mention}',
+                        mention_author=False)
         
     @commands.has_permissions(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
     @commands.command(usage="mute <@user1 @user2 @user3> <reason>")
     async def mute(self, ctx, members: commands.Greedy[discord.Member], *, reason="No reason given."):
         """ Prevent member(s) from talking on your server. """
-        if not members: 
-            return await ctx.send('No user specified.se')
-        
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:
             muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
@@ -365,10 +363,12 @@ class Mod(commands.Cog):
             else:
                 muted.append(i)
                 await i.add_roles(muted_role, reason=f"{ctx.author}: {reason}")
-        muted = f"Muted {', '.join([i.mention for i in muted])} for {reason}" if muted else ""
-        not_muted = f"⚠ Could not mute {', '.join([i.mention for i in not_muted])}," \
-                    f" they are the same or higher role than me." if not_muted else ""
-        await ctx.send("\n".join([i for i in [muted, not_muted] if i]))
+
+        if muted:
+            await ctx.reply(f"Muted {', '.join([i.mention for i in muted])} for {reason}", mention_author=False)
+        if not_muted:
+            await ctx.reply(f"⚠ Could not mute {', '.join([i.mention for i in not_muted])},"
+                    f" they are the same or higher role than me.", mention_author=True)
         
                 
     @commands.command(usage="<@user @user2>")
@@ -376,11 +376,9 @@ class Mod(commands.Cog):
     @commands.bot_has_permissions(manage_roles=True)
     async def unmute(self, ctx, members: commands.Greedy[discord.Member]):
         """ Allow members to talk again. """
-        if not members:
-            return await ctx.send('No members to unmute specified')
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:
-            return await ctx.send(f"No 'muted' role found on {ctx.guild.name}")
+            return await ctx.reply(f"No 'muted' role found on {ctx.guild.name}", mention_author=True)
         
         success, fail = [], []
         for i in members:
@@ -390,10 +388,11 @@ class Mod(commands.Cog):
                 fail.append(i.mention)
             else:
                 success.append(i.mention)
-
-        success = f"🆗 Unmuted {', '.join(success)}" if success else ""
-        fail = f"🚫 Could not unmute {', '.join(fail)}" if fail else ""
-        await ctx.send("\n".join(i for i in [success, fail] if i))
+        
+        if success:
+            await ctx.reply(f"🆗 Unmuted {', '.join(success)}", mention_author=False)
+        if fail:
+            await ctx.reply(f"🚫 Could not unmute {', '.join(fail)}", mention_author=True)
         
     
     @commands.command(aliases=["clear"])
@@ -412,9 +411,9 @@ class Mod(commands.Cog):
         try:
             deleted = await ctx.channel.purge(limit=number, check=is_me)
             s = "s" if len(deleted) > 1 else ""
-            await ctx.send(f'♻ Deleted {len(deleted)} bot and command messages{s}', delete_after=10)
+            await ctx.reply(f'♻ Deleted {len(deleted)} bot and command messages{s}', mention_author=False)
         except discord.NotFound:
-            await ctx.send('⚠ An error occurred, someone else deleted those messages before I did.', delete_after=5)
+            pass
     
     @commands.group(invoke_without_command=True)
     @commands.guild_only()
@@ -430,7 +429,7 @@ class Mod(commands.Cog):
             await self.update_prefixes()
         
         prefixes = ', '.join([f"'{i}'" for i in prefixes])
-        await ctx.send(f"Current Command prefixes for this server: ```{prefixes}```")
+        await ctx.reply(f"Current Command prefixes for this server: ```{prefixes}```", mention_author=False)
     
     @prefix.command(name="add", aliases=["set"])
     @commands.has_permissions(manage_guild=True)
@@ -446,13 +445,13 @@ class Mod(commands.Cog):
             await connection.execute("""INSERT INTO prefixes (guild_id,prefix) VALUES ($1,$2) """, ctx.guild.id,
                                      prefix)
             await self.bot.db.release(connection)
-            await ctx.send(f"Added '{prefix}' to {ctx.guild.name}'s prefixes list.")
+            await ctx.reply(f"Added '{prefix}' to {ctx.guild.name}'s prefixes list.", mention_author=False)
             await self.update_prefixes()
         else:
-            await ctx.send(f"'{prefix}' was already in {ctx.guild.name}'s prefix list")
+            await ctx.reply(f"'{prefix}' was already in {ctx.guild.name}'s prefix list", mention_author=False)
         
         prefixes = ', '.join([f"'{i}'" for i in self.bot.prefix_cache[ctx.guild.id]])
-        await ctx.send(f"Current Command prefixes for this server: ```{prefixes}```")
+        await ctx.reply(f"Current Command prefixes for this server: ```{prefixes}```", mention_author=False)
     
     @prefix.command(name="remove", aliases=["delete"])
     @commands.has_permissions(manage_guild=True)
@@ -467,13 +466,13 @@ class Mod(commands.Cog):
             await connection.execute("""DELETE FROM prefixes WHERE (guild_id,prefix) = ($1,$2) """, ctx.guild.id,
                                      prefix)
             await self.bot.db.release(connection)
-            await ctx.send(f"Deleted '{prefix}' from {ctx.guild.name}'s prefixes list.")
+            await ctx.reply(f"Deleted '{prefix}' from {ctx.guild.name}'s prefixes list.", mention_author=False)
             await self.update_prefixes()
         else:
-            await ctx.send(f"'{prefix}' was not in {ctx.guild.name}'s prefix list")
+            await ctx.reply(f"'{prefix}' was not in {ctx.guild.name}'s prefix list", mention_author=False)
         
         prefixes = ', '.join([f"'{i}'" for i in self.bot.prefix_cache[ctx.guild.id]])
-        await ctx.send(f"Current Command prefixes for this server: ```{prefixes}```")
+        await ctx.reply(f"Current Command prefixes for this server: ```{prefixes}```", mention_author=False)
     
     @commands.command(usage="<command name to enable>")
     async def enable(self, ctx, command: str):
@@ -489,7 +488,7 @@ class Mod(commands.Cog):
         
         if ctx.invoked_with == "enable":
             if command not in self.bot.disabled_cache[ctx.guild.id]:
-                return await ctx.send(f"The {command} command isn't disabled on this server.")
+                return await ctx.reply(f"The {command} command is not disabled on this server.", mention_author=False)
             else:
                 connection = await self.bot.db.acquire()
                 async with connection.transaction():
@@ -498,23 +497,24 @@ class Mod(commands.Cog):
                         """, ctx.guild.id, command)
                 await self.bot.db.release(connection)
                 await self.update_cache()
-                return await ctx.send(f"The {command} command was re-enabled for {ctx.guild.name}")
+                return await ctx.reply(f"The {command} command was enabled for {ctx.guild.name}", mention_author=False)
         elif ctx.invoked_with == "disable":
             if command in self.bot.disabled_cache[ctx.guild.id]:
-                return await ctx.send(f"The {command} command is already disabled on this server.")
+                return await ctx.reply(f"The {command} command is already disabled on this server.",
+                                       mention_author=False)
         
         
         if command in ('disable', 'enable'):
-            return await ctx.send('Cannot disable the disable command.')
+            return await ctx.reply('You cannot disable the disable command.', mention_author=True)
         elif command not in [i.name for i in list(self.bot.commands)]:
-            return await ctx.send('Unrecognised command name.')
+            return await ctx.reply('Unrecognised command name.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         await connection.execute(""" INSERT INTO disabled_commands (guild_id,command) VALUES ($1,$2) """,
                                  ctx.guild.id, command)
         await self.bot.db.release(connection)
         await self.update_cache()
-        return await ctx.send(f"The {command} command was disabled for {ctx.guild.name}")
+        return await ctx.reply(f"The {command} command was disabled for {ctx.guild.name}", mention_author=False)
     
     @commands.command(usage="disabled")
     @commands.has_permissions(manage_guild=True)
@@ -522,9 +522,11 @@ class Mod(commands.Cog):
         """ Check which commands are disabled on this server """
         try:
             disabled = self.bot.disabled_cache[ctx.guild.id]
-            await ctx.send(f"The following commands are disabled on this server: ```{' ,'.join(disabled)}```")
+            header = f"The following commands are disabled on this server:"
+            embeds = embed_utils.rows_to_embeds(discord.Embed(), disabled)
+            await paginate(ctx, embeds, header=header)
         except KeyError:
-            return await ctx.send(f'No commands are currently disabled on {ctx.guild.name}')
+            return await ctx.reply(f'No commands are currently disabled on {ctx.guild.name}', mention_author=False)
 
     @commands.command(usage="tempban <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
     @commands.has_permissions(ban_members=True)
@@ -532,13 +534,10 @@ class Mod(commands.Cog):
     async def tempban(self, ctx,  members: commands.Greedy[discord.Member], time, *,
                       reason: commands.clean_content = None):
         """ Temporarily ban member(s) """
-        if not members:
-            return await ctx.send('🚫 You need to specify which users to ban.')
-        
         try:
             delta = await parse_time(time.lower())
         except ValueError:
-            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
+            return await ctx.reply('Invalid time specified, use format `1d1h30m10s`', mention_author=True)
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -546,7 +545,7 @@ class Mod(commands.Cog):
             try:
                 await ctx.guild.ban(i, reason=reason)
             except discord.Forbidden:
-                await ctx.send("🚫 I can't ban {i.mention}}.")
+                await ctx.reply(f"🚫 I can't ban {i.mention}.", mention_author=True)
                 continue
         
             connection = await self.bot.db.acquire()
@@ -563,7 +562,7 @@ class Mod(commands.Cog):
         e.description = f"{[i.mention for i in members]} will be unbanned for \n{reason}\nat\n {human_time}"
         e.colour = 0x00ffff
         e.timestamp = remind_at
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
 
     @commands.command(usage="tempmute <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
     @commands.has_permissions(kick_members=True)
@@ -574,7 +573,7 @@ class Mod(commands.Cog):
         try:
             delta = await parse_time(time.lower())
         except ValueError:
-            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
+            return await ctx.reply('Invalid time specified, use format `1d1h30m10s`', mention_author=True)
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -610,7 +609,7 @@ class Mod(commands.Cog):
             e.add_field(name="Reason", value=str(reason))
         e.colour = 0x00ffff
         e.timestamp = remind_at
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
 
     @commands.command(usage="tempblock <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
     @commands.has_permissions(kick_members=True)
@@ -624,7 +623,7 @@ class Mod(commands.Cog):
         try:
             delta = await parse_time(time.lower())
         except ValueError:
-            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
+            return await ctx.reply('Invalid time specified, use format `1d1h30m10s`', mention_author=True)
         remind_at = datetime.datetime.now() + delta
         human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
     
@@ -649,7 +648,7 @@ class Mod(commands.Cog):
                         f"\n{reason}\nuntil\n {human_time}"
         e.colour = 0x00ffff
         e.timestamp = remind_at
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
         
     @commands.command()
     @commands.has_permissions(manage_roles=True)
@@ -679,16 +678,16 @@ class Mod(commands.Cog):
                 modified_roles.append(i.name)
                 
         if not modified_roles:
-            return await ctx.send('⚠ No roles were modified.')
-        await ctx.send(f"⚠ {len(modified_roles)} roles no longer have send_messages permissions.")
+            return await ctx.reply('⚠ No roles were modified.', mention_author=True)
+        await ctx.reply(f"⚠ {len(modified_roles)} roles can no longer send messages.", mention_author=True)
         output = modified_roles.pop(0)
         for x in modified_roles:
             if len(x + output + 10 > 2000):
                 output += f", {x}"
             else:
-                await ctx.send(f"```{output}```")
+                await ctx.reply(f"```{output}```", mention_author=True)
                 output = x
-        await ctx.send(f"```{output}```")
+        await ctx.reply(f"```{output}```", mention_author=True)
 
     @commands.command(usage="")
     @commands.has_permissions(manage_roles=True)
@@ -696,7 +695,7 @@ class Mod(commands.Cog):
     async def unlock(self, ctx):
         """ Unlock a previously set lockdown. """
         if not ctx.guild.id in self.bot.lockdown_cache:
-            return await ctx.send('Lockdown not in progress.')
+            return await ctx.reply('Lockdown not in progress.', mention_author=False)
         
         count = 0
         for role in self.bot.lockdown_cache[ctx.guild.id]:
@@ -706,7 +705,7 @@ class Mod(commands.Cog):
             count += 1
         
         self.bot.lockdown_cache.pop(ctx.guild.id)  # dump from cache, no longer needed.
-        await ctx.send(f'Restored send_messages permissions to {count} roles')
+        await ctx.reply(f'Restored send_messages permissions to {count} roles', mention_author=True)
     
 
 def setup(bot):

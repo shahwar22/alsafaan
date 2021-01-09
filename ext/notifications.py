@@ -59,12 +59,26 @@ class Notifications(commands.Cog):
                         value = self.bot.get_channel(value).mention
                     except AttributeError:
                         value = "Deleted channel."
+                    
+                    if key == "joins_channel_id":
+                        key = "Joins"
+                    elif key == "leaves_channel_id":
+                        key = "Leaves"
+                    elif key == "guild_id":
+                        continue
+                    elif key == "emojis_channel_id":
+                        key = "Emojis"
+                    elif key == "mutes_channel_id":
+                        key = "Mutes"
+                    elif key == "deletes_channel_id":
+                        key = "Deleted messages"
+                    
                     e.description += f"{key}: {value} \n"
                 else:
                     e.description += f"{key}: Not set\n"
         
         e.set_thumbnail(url=ctx.guild.icon_url)
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
     
     # Join messages
     @commands.Cog.listener()
@@ -89,7 +103,7 @@ class Notifications(commands.Cog):
     
         coloured_time = codeblocks.time_to_colour(new_member.created_at)
     
-        e.add_field(name="Account Created", value=coloured_time)
+        e.add_field(name="Account Created", value=coloured_time, inline=False)
         e.set_thumbnail(url=new_member.avatar_url)
     
         try:
@@ -105,12 +119,13 @@ class Notifications(commands.Cog):
             joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(joins)
             if ch is None:
-                return await ctx.send(f'Join information is not currently being output.')
+                rep = 'Join information is not currently being output.'
             else:
-                return await ctx.send(f'Join information is currently being output to {ch.mention}')
+                rep = f'Join information is currently being output to {ch.mention}'
+            await ctx.reply(rep, mention_author=False)
         
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -119,7 +134,8 @@ class Notifications(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
         
-        await ctx.send(f'Information about new users will be sent to {channel.mention} when they join.')
+        await ctx.reply(f'Information about new users will be sent to {channel.mention} when they join.',
+                        mention_author=False)
 
     @commands.has_permissions(manage_channels=True)
     @joins.command(name="off", alaises=["none", "disable"], usages="joins off")
@@ -130,7 +146,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send('Information about new users will no longer be output.')
+        await ctx.reply('Information about new users will no longer be output.', mention_author=False)
 
     # Deleted messages
     @commands.Cog.listener()
@@ -183,12 +199,13 @@ class Notifications(commands.Cog):
             deletes = [r['deletes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(deletes)
             if ch is None:
-                return await ctx.send(f'Deleted messages are not currently being output.')
+                return await ctx.reply(f'Deleted messages are not currently being output.', mention_author=False)
             else:
-                return await ctx.send(f'Deleted messages are currently being output to {ch.mention}')
+                return await ctx.reply(f'Deleted messages are currently being output to {ch.mention}',
+                                       mention_author=False)
     
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
     
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -197,7 +214,7 @@ class Notifications(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
     
-        await ctx.send(f'Deleted messages will be sent to {channel.mention}.')
+        await ctx.reply(f'Deleted messages will be sent to {channel.mention}.', mention_author=False)
 
     @commands.has_permissions(manage_channels=True)
     @deletes.command(name="off", alaises=["none", "disable"], usages="deletes off")
@@ -207,7 +224,7 @@ class Notifications(commands.Cog):
                                  ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send('Deleted messages will no longer be output.')
+        await ctx.reply('Deleted messages will no longer be output.', mention_author=False)
     
     # Leave / ban / kick notifications
     @commands.has_permissions(manage_guild=True)
@@ -218,12 +235,13 @@ class Notifications(commands.Cog):
             leaves = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(leaves)
             if ch is None:
-                return await ctx.send(f'Member leaves are not currently being output.')
+                rep = f'Member leaves are not currently being output.'
             else:
-                return await ctx.send(f'Member leave information is currently being output to {ch.mention}')
+                rep = f'Member leave information is currently being output to {ch.mention}'
+            return await ctx.reply(rep, mention_author=False)
         
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -233,7 +251,7 @@ class Notifications(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
         
-        await ctx.send(f'Notifications will be sent to {channel.mention} when users leave.')
+        await ctx.reply(f'Notifications will be sent to {channel.mention} when users leave.', mention_author=False)
 
     @commands.has_permissions(manage_channels=True)
     @leaves.command(name="off", alaises=["none", "disable"], usage="leaves off")
@@ -244,7 +262,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send('Leave notifications will no longer be output.')
+        await ctx.reply('Leave notifications will no longer be output.', mention_author=False)
 
     # Unban notifier.
     @commands.Cog.listener()
@@ -269,12 +287,13 @@ class Notifications(commands.Cog):
             mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(mutes)
             if ch is None:
-                return await ctx.send(f'Mute notifications are not currently being output.')
+                rep = 'Mute notifications are not currently being output.'
             else:
-                return await ctx.send(f'Mute notifications are currently being output to {ch.mention}')
+                rep = f'Mute notifications are currently being output to {ch.mention}'
+            return await ctx.reply(rep, mention_author=False)
         
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -282,7 +301,8 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send(f"Notifications will be output to {channel.mention} when a member is muted.")
+        await ctx.reply(f"Notifications will be output to {channel.mention} when a member is muted.",
+                        mention_author=False)
 
     @commands.has_permissions(manage_channels=True)
     @mutes.command(name="off", alaises=["none", "disable"], usage="leaves off")
@@ -293,7 +313,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send('Mute and block notifications will no longer be output.')
+        await ctx.reply('Mute and block notifications will no longer be output.', mention_author=False)
     
     # Emoji update notifications
     @commands.has_permissions(manage_channels=True)
@@ -304,12 +324,12 @@ class Notifications(commands.Cog):
             emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(emojis)
             if ch is None:
-                return await ctx.send(f'Emoji change notifications are not currently being output.')
+                rep = 'Emoji change notifications are not currently being output.'
             else:
-                return await ctx.send(f'Emoji change notifications are currently being output to {ch.mention}')
-        
+                rep = f'Emoji change notifications are currently being output to {ch.mention}'
+            return await ctx.reply(rep, mention_author=False)
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.send(f'🚫 I cannot send messages to {channel.mention}.')
+            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -318,7 +338,7 @@ class Notifications(commands.Cog):
                 """, ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send(f"Notifications will be output to {channel.mention} when emojis are changed.")
+        await ctx.reply(f"Notifications will be sent to {channel.mention} if emojis are changed.", mention_author=False)
 
     @emojis.command()
     @commands.has_permissions(manage_channels=True)
@@ -329,7 +349,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.send('Emoji update notifications will no longer be output.')
+        await ctx.reply('Emoji update notifications will no longer be output.', mention_author=False)
 
     # TODO: Blocked
     @commands.Cog.listener()

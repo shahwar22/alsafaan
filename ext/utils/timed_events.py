@@ -73,11 +73,11 @@ async def spool_reminder(bot, record):
 	except AttributeError:
 		pass
 	
-	if record['mod_action']:
-		await channel.send(embed=e)
-	else:
+	try:
+		await msg.reply(embed=e, mention_author=True)
+	except discord.NotFound:
 		try:
-			await channel.send(mention, embed=e)
+			await msg.channel.send(mention, embed=e)
 		except discord.NotFound:
 			try:
 				await bot.get_user(user_id).send(mention, embed=e)
@@ -85,5 +85,6 @@ async def spool_reminder(bot, record):
 				pass
 	
 	connection = await bot.db.acquire()
-	await connection.execute("""DELETE FROM reminders WHERE message_id = $1""", record['message_id'])
+	async with connection.transaction():
+		await connection.execute("""DELETE FROM reminders WHERE message_id = $1""", record['message_id'])
 	await bot.db.release(connection)

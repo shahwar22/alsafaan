@@ -84,7 +84,7 @@ class TransferLookup(commands.Cog):
         async with self.bot.session.post(f"http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche",
                                          params=p) as resp:
             if resp.status != 200:
-                return await ctx.send(f"HTTP Error connecting to transfermarkt: {resp.status}")
+                return await ctx.reply(f"HTTP Error connecting to transfermarkt: {resp.status}", mention_author=False)
             tree = html.fromstring(await resp.text())
 
         # Header names, scrape then compare (because they don't follow a pattern.)
@@ -105,7 +105,7 @@ class TransferLookup(commands.Cog):
                     count += 1
 
         if not results:
-            return await ctx.send(f":no_entry_sign: No results for {query}")
+            return await ctx.reply(f":no_entry_sign: No results for {query}", mention_author=False)
         sortedlist = [i[0] for i in sorted(results.values())]
 
         # If only one category has results, invoke that search.
@@ -121,7 +121,7 @@ class TransferLookup(commands.Cog):
         e.set_thumbnail(url="http://www.australian-people-records.com/images/Search-A-Person.jpg")
 
         async with ctx.typing():
-            m = await ctx.send(embed=e)
+            m = await ctx.reply(embed=e, mention_author=False)
 
             def check(message):
                 if message.author == ctx.author:
@@ -204,7 +204,7 @@ class TransferLookup(commands.Cog):
         p = {"w_s": period}
         async with self.bot.session.get(target, params=p) as resp:
             if resp.status != 200:
-                return await ctx.send(f"Error {resp.status} connecting to {resp.url}")
+                return await ctx.reply(f"Error {resp.status} connecting to {resp.url}", mention_author=False)
             tree = html.fromstring(await resp.text())
 
         e.set_author(name="".join(tree.xpath('.//head/title/text()')), url=target)
@@ -258,7 +258,7 @@ class TransferLookup(commands.Cog):
         for x, y in [("Players in", inlist), ("Loans In", inloans), ("Players out", outlist), ("Loans Out", outloans)]:
             write_field(x, y) if y else ""
 
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
 
 
 def setup(bot):

@@ -13,11 +13,11 @@ def time_to_colour(timestamp: datetime.datetime) -> str:
     elif time_delta.total_seconds() < 2419200:  # 1 month
         coloured_time = f"```yaml\n[{timestamp}]\n[1 week to 1 month]```"  # cyan
     elif time_delta.total_seconds() < 15780000:  # 6 months
-        coloured_time = f"```diff+[{timestamp}]\n[1 month to 6 months]```"  # green
+        coloured_time = f"```diff\n+[{timestamp}]\n[1 month to 6 months]```"  # green
     else:
         coloured_time = f"```ini\n[{timestamp}]\n[More than 6 months]```"  # blue
     return coloured_time
-
+    
 
 def error_to_codeblock(error):
     return f':no_entry_sign: {type(error).__name__}: {error}```py\n' \

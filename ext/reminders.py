@@ -40,12 +40,12 @@ class Reminders(commands.Cog):
         try:
             delta = await timed_events.parse_time(time.lower())
         except ValueError:
-            return await ctx.send('Invalid time specified, make sure to use the format `1d1h30m10s`')
+            return await ctx.reply('Invalid time specified.', mention_author=False)
         
         try:
             remind_at = datetime.datetime.now() + delta
         except OverflowError:
-            return await ctx.send("You'll be dead by then.")
+            return await ctx.reply("You'll be dead by then.", mention_author=False)
         human_time = datetime.datetime.strftime(remind_at, "%a %d %b at %H:%M:%S")
         
         connection = await self.bot.db.acquire()
@@ -64,7 +64,7 @@ class Reminders(commands.Cog):
         e.description = f"**{human_time}**\n{message}"
         e.colour = 0x00ffff
         e.timestamp = remind_at
-        await ctx.send(embed=e)
+        await ctx.reply(embed=e, mention_author=False)
     
     @timer.command(aliases=["timers"])
     async def list(self, ctx):

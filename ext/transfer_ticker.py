@@ -33,6 +33,22 @@ class TransferTicker(commands.Cog):
     
     def cog_unload(self):
         self.transfer_ticker.cancel()
+
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute("""DELETE FROM transfers_channels WHERE guild_id = $1""", guild.id)
+        await self.bot.db.release(connection)
+        await self.update_cache()
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
+        await self.bot.db.release(connection)
+        await self.update_cache()
     
     async def update_cache(self):
         # Grab most recent data.
@@ -181,8 +197,8 @@ class TransferTicker(commands.Cog):
                         await ch.send(shortstring)
                     else:
                         await ch.send(embed=e)
-                except discord.Forbidden:
-                    pass  # dumb fucks can't set a channel right.
+                except (discord.Forbidden, discord.HTTPException):
+                    pass  # dumb fucks can't set a channel right, server issues.
                 except AttributeError:
                     print(f"AttributeError transfer-ticker {channel_id} check for channel deletion.")
     
@@ -196,7 +212,7 @@ class TransferTicker(commands.Cog):
         guild_cache = [i[1] for i in self.cache if ctx.guild.id in i]
         
         if not guild_cache:
-            await ctx.send(f'{ctx.guild.name} does not have any transfers channels set.')
+            await ctx.reply(f'{ctx.guild.name} does not have any transfers channels set.', mention_author=True)
             channels = []
         else:
             # If no Query provided we check current whitelists.
@@ -210,6 +226,8 @@ class TransferTicker(commands.Cog):
                 async with ctx.typing():
                     mention_list = [i.mention for i in channels]
                     index = await embed_utils.page_selector(ctx, mention_list)
+                    if index is None:
+                        return None
                     channels = [channels[index]]
         
         if isinstance(channels, discord.TextChannel):
@@ -225,8 +243,8 @@ class TransferTicker(commands.Cog):
         # (guild_id, channel_id, mode)
         guild_cache = {i[1] for i in self.cache if ctx.guild.id in i}
         if not guild_cache:
-            return await ctx.send(f"{ctx.guild.name} has no transfer ticket channels set. Use `{ctx.prefix}tf "
-                                  f"set #channel` to create one.")
+            return await ctx.reply(f"{ctx.guild.name} has no transfer ticket channels set. Use `{ctx.prefix}tf "
+                                   f"set #channel` to create one.", mention_author=True)
 
         e = discord.Embed()
         e.colour = ctx.me.color
@@ -236,7 +254,7 @@ class TransferTicker(commands.Cog):
             if c.id not in guild_cache:
                 e.colour = discord.Colour.red()
                 e.description = "⛔ This channel is not set as a transfer ticker channel."
-                await ctx.send(embed=e)
+                await ctx.reply(embed=e, mention_author=True)
                 continue
             
             wl_key = [i for i in self.cache if c.id in i][0]
@@ -259,7 +277,7 @@ class TransferTicker(commands.Cog):
                 e.colour = discord.Colour.dark_orange()
                 e.description = f'⚠ **All** Transfers are being output to this channel in **{mode}** mode.\n' \
                                 f'You can create a whitelist with {ctx.prefix}tf whitelist add'
-                await ctx.send(embed=e)
+                await ctx.reply(embed=e, mention_author=False)
                 continue
     
     @ticker.command(usage="<#channel1[, #channel2]> <'Embed', 'Short', or leave blank to see current setting.>")
@@ -269,34 +287,31 @@ class TransferTicker(commands.Cog):
         channels = await self._pick_channels(ctx, channels)
         guild_cache = [i for i in self.cache if ctx.guild.id in i]
 
-        replies = []
         if not toggle:
-
             if not channels:
-                return await ctx.send('This server has no transfer ticker channels set.')
+                return await ctx.reply('This server has no transfer ticker channels set.', message_author=True)
             for c in channels:
                 mode = "Short" if [i[2] for i in self.cache if c.id in i][0] else "Embed"
-                replies.append(f"{c.mention} is set to {mode} mode.")
-
-            return await ctx.send("\n".join(replies))
+                await ctx.reply(f"{c.mention} is set to {mode} mode.", mention_author=False)
+            return
         
         if toggle.lower() not in ["embed", "short"]:
-            return await ctx.send(f'🚫 Invalid mode "{toggle}" specified, mode can either be "embed" or "short"')
+            return await ctx.reply(f'🚫 Invalid mode "{toggle}", use either "embed" or "short"', mention_author=True)
         
         update_toggle = True if toggle == "short" else False
         
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            for c in channels:
-                if c.id not in [i[1] for i in guild_cache]:
-                    replies.append(f"🚫 {c.mention} is not set as a transfer channel.")
-                    continue
+        for c in channels:
+            if c.id not in [i[1] for i in guild_cache]:
+                await ctx.reply(f"🚫 {c.mention} is not set as a transfer channel.", mentiion_author=True)
+                continue
                 
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
                 await connection.execute("""UPDATE transfers_channels SET short_mode = $1 WHERE (channel_id) = $2""",
                                          update_toggle, c.id)
-                replies.append(f"✅ {c.mention} was set to {toggle} mode")
-        await self.bot.db.release(connection)
-        await ctx.send("\n".join(replies))
+            await self.bot.db.release(connection)
+            await ctx.reply(f"✅ {c.mention} was set to {toggle} mode", mention_author=False)
+
         await self.update_cache()
     
     @ticker.group(usage="[#channel]", invoke_without_command=True)
@@ -309,77 +324,63 @@ class TransferTicker(commands.Cog):
             try:
                 key = [i for i in self.cache if c.id in i][0]
             except IndexError:
-                print(c.id, "not found in", self.cache)
-                await ctx.send(f'An error occured trying to find a whitelist for {c.id}')
+                print("Warning:", c.id, "not found in transfers cache.")
+                await ctx.reply(f'No transfer ticker found for {c.mention}.', mention_author=True)
                 continue
             whitelist = self.cache[key]
             if not whitelist:
-                await ctx.send(f"{c.mention} is tracking all transfers")
+                await ctx.reply(f"{c.mention} is tracking all transfers", mention_author=False)
                 continue
             embed = discord.Embed(title=f"Whitelist items for {c.name}")
             embeds = embed_utils.rows_to_embeds(embed, [i[2] for i in whitelist])
             await embed_utils.paginate(ctx, embeds)
-    
+
     @commands.has_permissions(manage_channels=True)
-    @whitelist.command(name="add", usage="<#Channel[, #Channel2, #Channel3]> <'team' or 'league'> <Search query>")
-    async def _add(self, ctx, channels: commands.Greedy[discord.TextChannel], mode, *, qry: commands.clean_content):
+    @ticker.command(usage="<#Channel[, #Channel2, #Channel3]> <'team' or 'league'> <Search query>")
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], mode, *, qry: commands.clean_content):
         """ Add a league or team to your transfer ticker channel(s)"""
         channels = await self._pick_channels(ctx, channels)
-        
+    
         if not channels:
             return
-        
+    
         if mode.lower() == "team":
             targets, links = await transfer_tools.search(ctx, qry, "clubs", whitelist_fetch=True)
         elif mode.lower() == "league":
             targets, links = await transfer_tools.search(ctx, qry, "domestic competitions", whitelist_fetch=True)
         else:
-            return await ctx.send("Invalid mode specified. Mode must be either `team` or `league`")
-        
+            return await ctx.reply("Invalid mode specified. Mode must be either `team` or `league`")
+    
         index = await embed_utils.page_selector(ctx, targets)
-        
+        if index is None:
+            return await ctx.reply('No selection provided, channel not edited.')
+    
         result = links[index]
         alias = targets[index]
-        
+    
         result = result.replace('http://transfermarkt.co.uk', "")  # Trim this down.
-        
-        connection = await self.bot.db.acquire()
-        replies = []
+    
         for c in channels:
-            key = [i for i in self.cache if c.id in i][0]
-            whitelist = self.cache[key]
+            try:
+                key = [i for i in self.cache if c.id in i][0]
+                whitelist = self.cache[key]
             
-            if result in [i[0] for i in whitelist]:
-                replies.append(f"🚫 {c.mention} whitelist already contains {alias}.")
-                continue
-            
-            await connection.execute("""INSERT INTO transfers_whitelists (channel_id, item, type, alias)
-                                    VALUES ($1, $2, $3, $4)""", c.id, result, mode, alias)
-            replies.append(f"✅ Item <{result}> added to {c.mention} whitelist")
-        
-        await self.bot.db.release(connection)
-        await self.update_cache()
-        await ctx.send("\n".join(replies))
-    
-    @commands.Cog.listener()
-    async def on_guild_remove(self, guild):
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM transfers_channels WHERE guild_id = $1""", guild.id)
-        await self.bot.db.release(connection)
-        await self.update_cache()
-    
-    @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel):
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+                if result in [i[0] for i in whitelist]:
+                    await ctx.reply(f"🚫 {c.mention} whitelist already contains {alias}.", mention_author=False)
+                    continue
+            except IndexError:
+                pass
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
+                await connection.execute("""INSERT INTO transfers_whitelists (channel_id, item, type, alias)
+                                            VALUES ($1, $2, $3, $4)""", c.id, result, mode, alias)
+            await self.bot.db.release(connection)
+            await ctx.reply(f"✅ Item <{result}> added to {c.mention} whitelist", mention_author=True)
         await self.update_cache()
     
     @commands.has_permissions(manage_channels=True)
-    @whitelist.command(name="remove", usage="<name of country and league to remove>")
-    async def _remove(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry):
+    @ticker.command(usage="<name of country and league to remove>")
+    async def remove(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry):
         """ Remove a whitelisted item from your transfer channel ticker """
         channels = await self._pick_channels(ctx, channels)
         guild_cache = {i[1] for i in self.cache if ctx.guild.id in i}
@@ -393,23 +394,25 @@ class TransferTicker(commands.Cog):
                     combined_whitelist.append(item[2])  # 2 is alias.
         
         index = await embed_utils.page_selector(ctx, combined_whitelist)
+        
+        if index is None:
+            return await ctx.reply('No selection provided, channel not edited.', mention_author=True)
         item = combined_whitelist[index]
         
-        replies = []
-        conn = await self.bot.db.acquire()
-        async with conn.transaction():
-            for c in channels:
-                if c.id not in guild_cache:
-                    replies.append(f"🚫 {c.mention} is not set as a transfer tracker channel.")
-                    continue
-                await conn.execute(""" DELETE FROM transfers_whitelists WHERE channel_id = $1 AND alias = $2 """,
-                                   c.id, item)
-                replies.append(f'✅ {item} was removed from the {c.mention} whitelist.')
-        await self.bot.db.release(conn)
+        for c in channels:
+            if c.id not in guild_cache:
+                await ctx.reply(f"🚫 {c.mention} is not set as a transfer tracker channel.", mention_author=False)
+                continue
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
+                await connection.execute(""" DELETE FROM transfers_whitelists WHERE
+                     channel_id = $1 AND alias = $2 """, c.id, item)
+            await self.bot.db.release(connection)
+            await ctx.reply('✅ {item} was removed from the {c.mention} whitelist.', mention_author=False)
+
         await self.update_cache()
-        await ctx.send("\n".join(replies))
     
-    @ticker.command(name="set", aliases=["add"], usage="<#channel [, #channel2]> ['short' or 'full']")
+    @ticker.command(name="set", aliases=["create"], usage="<#channel [, #channel2]> ['short' or 'full']")
     @commands.has_permissions(manage_channels=True)
     async def _set(self, ctx, channels: commands.Greedy[discord.TextChannel], short_mode=""):
         """ Set channel(s) as a transfer ticker for this server """
@@ -421,24 +424,24 @@ class TransferTicker(commands.Cog):
                 short_mode = False
             else:
                 short_mode = True
-        connection = await self.bot.db.acquire()
-        replies = []
+
         for c in channels:
             if c.id in [i[1] for i in self.cache]:
-                replies.append(f"🚫 {c.mention} already set as transfer ticker(s)")
+                await ctx.reply(f"🚫 {c.mention} already set as transfer ticker(s)", mention_author=False)
                 continue
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
+                await connection.execute(
+                    """INSERT INTO transfers_channels (guild_id,channel_id,short_mode) VALUES ($1,$2,$3)""",
+                    ctx.guild.id, c.id, short_mode)
+            await self.bot.db.release(connection)
             
-            await connection.execute(
-                """INSERT INTO transfers_channels (guild_id,channel_id,short_mode) VALUES ($1,$2,$3)""", ctx.guild.id,
-                c.id, short_mode)
             mode = "short mode" if short_mode else "embed mode"
-            replies.append(
+            await ctx.reply(
                 f"✅ Set {c.mention} as transfer ticker channel(s) using {mode} mode. ALL transfers will be output "
-                f"there. Please create a whitelist if this gets spammy.")
-        await self.bot.db.release(connection)
+                f"there. Please create a whitelist if this gets spammy.", mention_author=False)
+
         await self.update_cache()
-        replies = "\n".join(replies)
-        await ctx.send(replies)
     
     @ticker.command(name="unset", aliases=["delete"], usage="<#channel-to-unset>")
     @commands.has_permissions(manage_channels=True)
@@ -446,21 +449,27 @@ class TransferTicker(commands.Cog):
         """ Remove a channel's transfer ticker """
         channels = await self._pick_channels(ctx, channels)
         
-        connection = await self.bot.db.acquire()
-        replies = []
-        async with connection.transaction():
-            for c in channels:
-                if c.id not in [i[1] for i in self.cache]:
-                    replies.append(f"🚫 {c.mention} was not set as transfer ticker channels..")
-                    continue
-                
+        for c in channels:
+            if c.id not in [i[1] for i in self.cache]:
+                await ctx.reply(f"🚫 {c.mention} was not set as a transfer ticker channel.", mention_author=False)
+                continue
+            connection = await self.bot.db.acquire()
+            async with connection.transaction():
                 await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", c.id)
-                replies.append(f"✅ Deleted transfer ticker from {c.mention}")
-        await self.bot.db.release(connection)
+            await self.bot.db.release(connection)
+            await ctx.reply(f"✅ Removed transfer ticker from {c.mention}", mention_author=False)
         await self.update_cache()
-        if replies:
-            await ctx.send("\n".join(replies))
 
-
+    @ticker.command(usage="<channel_id>", hidden=True)
+    @commands.is_owner()
+    async def admin(self, ctx, channel_id: int):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute(""" DELETE FROM transfers_channels WHERE channel_id = $1""", channel_id)
+        await self.bot.db.release(connection)
+        await ctx.reply(f"✅ **{channel_id}** was deleted from the transfers database", mention_author=False)
+        await self.update_cache()
+        
+        
 def setup(bot):
     bot.add_cog(TransferTicker(bot))

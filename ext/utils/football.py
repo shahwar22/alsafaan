@@ -32,28 +32,38 @@ FLASH_SCORE_ADS = [(By.XPATH, './/div[@class="seoAdWrapper"]'),
                    ]
 
 
+class MatchEvent:
+    def __init__(self):
+        pass
+    
+    def __repr__(self):
+        return f"Event({self.__dict__})"
+
+
 class Fixture:
     def __init__(self, time: typing.Union[str, datetime.datetime], home: str, away: str, **kwargs):
         self.time = time
         self.home = home
         self.away = away
+        self.country = None
+        self.league = None
         
         # Initialise some vars...
         self.score_home = None
         self.score_away = None
+        self.events = None
+        self.penalties_home = None
+        self.penalties_away = None
         
         # Match Thread Bot specific vars
         self.kickoff = None
         self.referee = None
         self.stadium = None
         self.attendance = None
-        self.country = None
-        self.league = None
+        self.formation = None
         self.comp_link = None
-        self.events = None
-        self.penalties_home = None
-        self.penalties_away = None
         self.images = None
+        self.table = None
         self.__dict__.update(kwargs)
         
     def __repr__(self):
@@ -64,10 +74,6 @@ class Fixture:
             return f"`{self.formatted_time}:` [{self.bold_score}{self.tv}]({self.url})"
         else:
             return f"`{self.formatted_time}:` {self.bold_score}{self.tv}"
-        
-    @property
-    def tv(self):
-        return '📺' if hasattr(self, "is_televised") and self.is_televised else ""
 
     @classmethod
     def by_id(cls, match_id, driver=None):
@@ -90,6 +96,31 @@ class Fixture:
         return cls(url=url, home=home, away=away, time=ko, kickoff=ko, league=competition, comp_link=comp_link,
                    country=country)
 
+    @property
+    def tv(self):
+        return '📺' if hasattr(self, "is_televised") and self.is_televised else ""
+
+    @property
+    async def base_embed(self) -> discord.Embed:
+        e = discord.Embed()
+        e.title = f"≡ {self.bold_score}"
+        e.url = self.url
+    
+        e.set_author(name=f"{self.country}: {self.league}")
+        if isinstance(self.time, datetime.datetime):
+            e.timestamp = self.time
+            if self.time > datetime.datetime.now():
+                e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
+        elif self.time == "Postponed":
+            e.set_footer(text="This match has been postponed.")
+            e.colour = discord.Color.red()
+        else:
+            e.set_footer(text=self.time)
+            e.timestamp = datetime.datetime.now()
+    
+        e.colour = self.state_colour[1]
+        return e
+    
     @property
     def formatted_time(self):
         if isinstance(self.time, datetime.datetime):
@@ -121,30 +152,15 @@ class Fixture:
 
     @property
     def live_score_text(self) -> str:
+        if self.state == "ht":
+            self.time = "HT"
         if self.state == "fin":
             self.time = "FT"
-        return f"`{self.state_colour[0]}` {self.time} {self.home_cards} {self.bold_score} {self.away_cards}"
-
-    @property
-    async def base_embed(self) -> discord.Embed:
-        e = discord.Embed()
-        e.title = f"≡ {self.bold_score}"
-        e.url = self.url
-        
-        e.set_author(name=f"{self.country}: {self.league}")
-        if isinstance(self.time, datetime.datetime):
-            e.timestamp = self.time
-            if self.time > datetime.datetime.now():
-                e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
-        elif self.time == "Postponed":
-            e.set_footer(text="This match has been postponed.")
-            e.colour = discord.Color.red()
-        else:
-            e.set_footer(text=self.time)
-            e.timestamp = datetime.datetime.now()
-    
-        e.colour = self.state_colour[1]
-        return e
+        try:
+            return f"`{self.state_colour[0]}` {self.time} {self.home_cards} {self.bold_score} {self.away_cards}"
+        except TypeError:
+            print(f"live_score_text DEBUG: "
+                  f"{self.state_colour}, {self.time}, {self.home_cards}, {self.bold_score}, {self.away_cards})")
 
     # For discord.
     @property
@@ -156,25 +172,36 @@ class Fixture:
         if isinstance(self.time, datetime.datetime):
             return "", discord.Embed.Empty  # Non-live matches
         
-        if "Half Time" in self.time:
-            return "🟡", 0xFFFF00  # Yellow
-    
-        if "+" in self.time:
-            return "🟣", 0x9932CC  # Purple
+        if hasattr(self, "state"):
+            if self.state == "live":
+                if self.time == "Extra Time":
+                    return "⚪",  0xFFFFFF  # White
+                elif "+" in self.time:
+                    return "🟣", 0x9932CC  # Purple
+                else:
+                    return "🟢", 0x0F9D58  # Green
         
-        if not hasattr(self, "state"):
-            return "🔵", 0x4285F4  # Blue
-        
-        if self.state == "live":
-            return "🟢", 0x0F9D58  # Green
-    
-        if self.state == "fin":
-            return "🔵", 0x4285F4  # Blue
-    
-        if "Postponed" in self.time or "Cancelled" in self.time:
-            return "🔴", 0xFF0000  # Red
-    
-        return "⚫", 0x010101  # Black
+            if self.state == "fin":
+                return "🔵", 0x4285F4  # Blue
+            
+            if self.state in ["Postponed", 'Cancelled', 'Abandoned']:
+                return "🔴", 0xFF0000  # Red
+            
+            if self.state in ["Delayed", "Interrupted"]:
+                return "🟠", 0xff6700  # Orange
+            
+            if self.state == "sched":
+                return "⚫", 0x010101  # Black
+
+            if self.state == "ht":
+                return "🟡", 0xFFFF00  # Yellow
+            
+            else:
+                print("Unhandled state:", self.state, self.home, self.away, self.url)
+                return "🔴", 0xFF0000  # Red
+            
+        else:
+            return "⚫", 0x010101  # Black
     
     def get_badge(self, driver, team) -> BytesIO:
         xp = f'.//div[contains(@class, tlogo-{team})]//img'
@@ -191,14 +218,13 @@ class Fixture:
                                           script=script, failure_message="Unable to find bracket for that tournament.")
         return image
     
-    def table(self, driver) -> BytesIO:
+    def get_table(self, driver) -> BytesIO:
         clicks = [(By.XPATH, ".//span[@class='button cookie-law-accept']")]
-        err = "No table found for this league."
         xp = './/div[contains(@class, "tableWrapper")]'
         
         image = selenium_driver.get_image(driver, self.url + "#standings;table;overall", xp, delete=FLASH_SCORE_ADS,
-                                          clicks=clicks, failure_message=err)
-        
+                                          clicks=clicks, failure_message="No table found for this league.")
+
         return image
     
     def stats_image(self, driver) -> BytesIO:
@@ -207,7 +233,7 @@ class Fixture:
                                           failure_message="Unable to find live stats for this match.")
         return image
     
-    def formation(self, driver) -> BytesIO:
+    def get_formation(self, driver) -> BytesIO:
         clicks = [(By.XPATH, './/div[@id="onetrust-accept-btn-handler"]')]
         xp = './/div[@id="lineups-content"]'
         image = selenium_driver.get_image(driver, self.url + "#lineups;1", xp, delete=FLASH_SCORE_ADS, clicks=clicks,
@@ -247,7 +273,7 @@ class Fixture:
             games.update({header: fx_list})
         return games
     
-    def refresh(self, driver):  # This is a very intensive, full lookup, reserved for the match thread bot.
+    def refresh(self, driver, for_discord=False):    # This is a very intensive, full lookup
         xp = ".//div[@id='utime']"
         src = selenium_driver.get_html(driver, self.url, xp)
         tree = html.fromstring(src)
@@ -277,95 +303,89 @@ class Fixture:
             self.league = competition
             self.comp_link = comp_link
         
-        # These must always be updated.
-        scores = tree.xpath('.//div[@class="current-result"]//span[@class="scoreboard"]/text()')
-        self.score_home = scores[0]
-        self.score_away = scores[1]
+        if not for_discord:
+            scores = tree.xpath('.//div[@class="current-result"]//span[@class="scoreboard"]/text()')
+            self.score_home = int(scores[0])
+            self.score_away = int(scores[1])
+            self.formation = self.get_formation(driver)
+            self.table = self.get_table(driver)
         
-        incidents = tree.xpath('.//div[@class="detailMS"]/div')
+        event_rows = tree.xpath('.//div[@class="detailMS"]/div')
         events = []
-        for i in incidents:
+        for i in event_rows:
+            event = MatchEvent()
             if "Header" in i.attrib['class']:
                 parts = [x.strip() for x in i.xpath('.//text()')]
-                events.append(("header", parts))
+                event.type = "header"
+                event.description = " ".join(parts)
                 if "Penalties" in parts:
                     self.penalties_home = parts[1]
                     self.penalties_away = parts[3]
             else:
                 team = i.attrib['class']
-                team = "home" if "home" in team else "away"
-                
-                time = ""
-                sub_on, sub_off = "", ""
-                note = ""
-                event_type = None
-                player = ""
-                event_desc = ""
+                event.team = self.home if "home" in team else self.away
                 
                 for node in i.xpath("./*"):
                     node_type = node.attrib['class']
-                    if "empty" in node_type:
-                        continue  # No events in half.
+                    try:
+                        event.description = node.attrib['title']
+                        print(f'Event description found: {event.description}')
+                    except KeyError:
+                        pass
                     
+                    # Check if events actually exist
+                    if "empty" in node_type:
+                        event.type = "No events in half"
+                        continue
+
                     # Time box
                     if "time-box" in node_type:
                         time = "".join(node.xpath('.//text()')).strip()
+                        event.time = time
                     
-                    # Substitution info
-                    elif node_type == "icon-box substitution-in":
-                        pass  # We handle the other two instead.
-                    
-                    elif node_type == "substitution-in-name":
-                        sub_on = ''.join(node.xpath('.//a/text()')).strip()
-                        
-                    elif node_type == "substitution-out-name":
-                        sub_off = ''.join(node.xpath('.//a/text()')).strip()
-                    
-                    # Disciplinary actions
+                    # Event types: Disciplinary
                     elif "y-card" in node_type:
-                        event_type = "booking"
-                        
+                        event.type = "booking"
                     elif "yr-card" in node_type:
-                        event_type = "2yellow"
-                    
+                        event.type = "2yellow"
                     elif "r-card" in node_type:
-                        event_type = "dismissal"
-                        
-                    elif "subincident-name" in node_type:
-                        note = "".join(node.xpath('.//text()'))
-                        
-                    elif "note-name" in node_type:
-                        note = "".join(node.xpath('.//text()'))
-                        
-                    # Goals & Penalties
+                        event.type = "dismissal"
+                    # Event types: Scoring
                     elif "penalty-missed" in node_type:
-                        event_desc = node.attrib['title']
-                        event_type = "Penalty miss"
-                        
+                        event.type = "Penalty miss"
                     elif "soccer-ball" in node_type:
-                        event_desc = node.attrib['title'].replace('<br />', " ")
-                        event_type = "Goal"
-                    
-                    # Player info
-                    elif node_type == "participant-name":
-                        player = ''.join(node.xpath('.//a/text()'))
+                        event.type = "goal"
+                    # Event type: Video Assistant Referee Review
+                    elif "var" in node_type:
+                        event.type = "VAR"
+                        event.note = "".join(node.xpath('.//text()')).strip('()')
+                    # Event type: Substitution
+                    elif node_type == "icon-box substitution-in":
+                        event.type = "substitution"
+                    elif node_type == "substitution-in-name":
+                        event.player_on = ''.join(node.xpath('.//a/text()')).strip()
+                    elif node_type == "substitution-out-name":
+                        event.player_off = ''.join(node.xpath('.//a/text()')).strip()
                         
+                    # Player info
+                    elif "participant-name" in node_type:
+                        event.player = ''.join(node.xpath('.//text()')).strip()
+                    elif "assist" in node_type:
+                        event.assist = "".join(node.xpath('.//text()')).strip('()')
+                    
+                    # Event notes
+                    elif any(x in node_type for x in ["subincident-name", "note-name"]):
+                        event.note = "".join(node.xpath('.//text()')).strip('()')
+                    
                     else:
-                        print("unhandled node", node_type, team, time, note, event_desc)
-                if sub_on:
-                    events.append(("Sub", time, team, (sub_on, sub_off)))
-                else:
-                    events.append((event_type, time, team, player, note, event_desc))
-            
+                        print('Error in match', self.home, "vs", self.away, self.url)
+                        print("unhandled node", node_type, team)
+            events.append(event)
         self.events = events
         
-        # TODO: Fetching images'
+        # TODO: Fetching images
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
-        
-        # TODO: Fetching players & formation'
-        # TODO: fetching statistics'
-
-        # TODO: fetching table'
+        # TODO: fetching statistics
         
     
 class Player:
@@ -459,7 +479,7 @@ class FlashScoreSearchResult:
                 time = f"⚽ LIVE! {time}"
             elif not time:
                 time = "?"
-            elif "Postp" in time:  # Should be dd.mm hh:mm or dd.mm.yyyy
+            elif "Postp" in time:
                 time = "🚫 Postponed "
             elif "Awrd" in time:
                 try:
@@ -468,7 +488,7 @@ class FlashScoreSearchResult:
                     time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m. %H:%M')
                 time = time.strftime("%d/%m/%Y")
                 time = f"{time} 🚫 FF"  # Forfeit
-            else:
+            else:  # Should be dd.mm hh:mm or dd.mm.yyyy
                 try:
                     time = datetime.datetime.strptime(time, '%d.%m.%Y')
                     if time.year != datetime.datetime.now().year:
@@ -523,12 +543,12 @@ class Competition(FlashScoreSearchResult):
         ctry = self.country_name.lower().replace(' ', '-')
         return f"https://www.flashscore.com/soccer/{ctry}/{self.url}"
     
-    def table(self, driver) -> BytesIO:
+    def get_table(self, driver) -> BytesIO:
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
         table_page = self.link + "/standings/"
         
         err = f"No table found on {table_page}"
-        image = selenium_driver.get_image(driver, table_page, xp, err, delete=FLASH_SCORE_ADS)
+        image = selenium_driver.get_image(driver, table_page, xp, failure_message=err, delete=FLASH_SCORE_ADS)
         self.fetch_logo(driver)
         return image
     
@@ -844,7 +864,7 @@ async def get_stadiums(query) -> typing.List[Stadium]:
 async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     qry_debug = query
 
-    for r in ["'", "[", "]", "#", '<', '>']:  # Fuckin morons.
+    for r in ["'", "[", "]", "#", '<', '>']:  # Fucking morons.
         query = query.replace(r, "")
         
     query = urllib.parse.quote(query)
@@ -862,5 +882,9 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
         print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
         raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
     
-    filtered = [i for i in res['results'] if i['participant_type_id'] in (0, 1)]
+    try:
+        filtered = [i for i in res['results'] if i['participant_type_id'] in (0, 1)]
+    except KeyError:
+        print('Football.py - get_fs_results - No results found in res, printting res: \n', res, "query was", query)
+        return []
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]
