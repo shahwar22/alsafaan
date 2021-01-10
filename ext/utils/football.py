@@ -871,20 +871,37 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     async with aiohttp.ClientSession() as cs:
         # One day we could probably expand upon this if we figure out what the other variables are.
         async with cs.get(f"https://s.flashscore.com/search/?q={query}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
-            res = await resp.text()
+            res = await resp.text(encoding="utf-8")
             assert resp.status == 200, f"Server returned a {resp.status} error, please try again later."
     
     # Un-fuck FS JSON reply.
     res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
     try:
-        res = json.loads(res)
+        res = json.loads(res, encoding='utf-8')
     except JSONDecodeError:
         print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
-        raise AssertionError('Something you typed broke the search query. Please only specify a team name.')
+        raise AssertionError('Something you typed broke the search query. Please only specify a team or league name.')
     
     try:
         filtered = [i for i in res['results'] if i['participant_type_id'] in (0, 1)]
     except KeyError:
-        print('Football.py - get_fs_results - No results found in res, printting res: \n', res, "query was", query)
         return []
     return [Team(**i) if i['participant_type_id'] == 1 else Competition(**i) for i in filtered]
+
+
+async def fs_search(ctx, query):
+    search_results = await get_fs_results(query)
+    search_results = [i for i in search_results if i.participant_type_id == 0]  # Filter out non-leagues
+    item_list = [i.title for i in search_results]
+    index = await embed_utils.page_selector(ctx, item_list)
+    
+    if index is None:
+        if not search_results:
+            await ctx.reply(f"🚫 No leagues found for {query}, channel not modified.", mention_author=False)
+        else:
+            await ctx.reply(f"🚫 Timed out waiting for you to reply, channel not modified.", mention_author=False)
+        return None  # Timeout or abort.
+    elif index is False:
+        return None
+    
+    return search_results[index]
