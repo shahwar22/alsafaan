@@ -10,7 +10,7 @@ from importlib import reload
 
 # TODO: restructure into ext.utils.football classes.
 
-class TransferLookup(commands.Cog):
+class Lookups(commands.Cog):
     """ Transfer market lookups """
 
     def __init__(self, bot):
@@ -106,18 +106,17 @@ class TransferLookup(commands.Cog):
 
         if not results:
             return await ctx.reply(f":no_entry_sign: No results for {query}", mention_author=False)
-        sortedlist = [i[0] for i in sorted(results.values())]
+        results = [i[0] for i in sorted(results.values())]
 
         # If only one category has results, invoke that search.
-        if len(sortedlist) == 1:
+        if len(results) == 1:
             return await ctx.invoke(results[0][1], qry=query)
 
         e = discord.Embed(url=str(resp.url))
         e.title = "Transfermarkt lookup"
         e.description = "Please type matching ID#```"
-        e.description += "\n".join(sortedlist) + "```"
+        e.description += "\n".join(results) + "```"
         e.colour = 0x1a3151
-        e.set_footer(text=ctx.author)
         e.set_thumbnail(url="http://www.australian-people-records.com/images/Search-A-Person.jpg")
 
         async with ctx.typing():
@@ -139,7 +138,7 @@ class TransferLookup(commands.Cog):
                 except discord.Forbidden:
                     return
 
-        # invoke appropriate subcommand for category selection.
+        # invoke appropriate sub-command for category selection.
         await m.delete()
         return await ctx.invoke(results[int(msg.content)][1], qry=query)
 
@@ -262,4 +261,4 @@ class TransferLookup(commands.Cog):
 
 
 def setup(bot):
-    bot.add_cog(TransferLookup(bot))
+    bot.add_cog(Lookups(bot))

@@ -37,6 +37,8 @@ class Tv(commands.Cog):
 					return await ctx.reply(f"Could not find a matching team/league for {team}.", mention_author=False)
 				matching_teams = [i for i in self.bot.tv if team in i.lower()]
 				index = await embed_utils.page_selector(ctx, matching_teams)
+				if index is False:
+					return
 				team = matching_teams[index]
 				em.url = self.bot.tv[team]
 				em.title = f"Televised Fixtures for {team}"

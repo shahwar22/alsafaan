@@ -9,8 +9,8 @@ import discord
 from ext.utils.embed_utils import paginate
 
 
-class TransferTicker(commands.Cog):
-    """ Create and configure Transfer-Ticker channels"""
+class Transfers(commands.Cog):
+    """ Create and configure Transfer Ticker channels"""
     
     async def imgurify(self, img_url):
         # upload image to imgur
@@ -472,4 +472,4 @@ class TransferTicker(commands.Cog):
         
         
 def setup(bot):
-    bot.add_cog(TransferTicker(bot))
+    bot.add_cog(Transfers(bot))

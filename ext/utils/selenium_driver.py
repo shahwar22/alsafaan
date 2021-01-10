@@ -6,7 +6,7 @@ from PIL import Image
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, \
-    StaleElementReferenceException, UnexpectedAlertPresentException, NoSuchElementException
+    StaleElementReferenceException, UnexpectedAlertPresentException, NoSuchElementException, NoAlertPresentException
 from selenium.webdriver import DesiredCapabilities
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -28,8 +28,8 @@ def fetch(driver, url, xpath, **kwargs):
     try:
         alert = driver.switch_to.alert
         alert.accept()
-    except Exception as e:
-        print("Selenium driver - Error accepting alert box", e)
+    except NoAlertPresentException:
+        # Expected error
         pass
     
     if driver.current_url != url:

@@ -410,8 +410,7 @@ class Mod(commands.Cog):
         
         try:
             deleted = await ctx.channel.purge(limit=number, check=is_me)
-            s = "s" if len(deleted) > 1 else ""
-            await ctx.reply(f'♻ Deleted {len(deleted)} bot and command messages{s}', mention_author=False)
+            await ctx.reply(f'♻ Deleted {len(deleted)} bot and command messages{"s" if len(deleted) > 1 else ""}')
         except discord.NotFound:
             pass
     
