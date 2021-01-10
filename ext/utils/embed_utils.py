@@ -51,11 +51,11 @@ async def get_colour(url=None):
                 return discord.Colour.blurple()
 
 
-def rows_to_embeds(base_embed, rows, per_row=10) -> typing.List[discord.Embed]:
+def rows_to_embeds(base_embed, rows, per_row=10, description_top="") -> typing.List[discord.Embed]:
     pages = [rows[i:i + per_row] for i in range(0, len(rows), per_row)]
     embeds = []
     for page_items in pages:
-        base_embed.description = "\n".join(page_items)
+        base_embed.description = description_top + "\n".join(page_items)
         embeds.append(deepcopy(base_embed))
     return embeds
 
@@ -91,7 +91,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
     # Add our page number info.
     if len(embeds) > 1:
         for x, y in enumerate(embeds, 1):
-            page_line = f"{ctx.author}: Page {x} of {len(embeds)}"
+            page_line = f"Page {x} of {len(embeds)}"
             if preserve_footer:
                 y.add_field(name="Page", value=page_line)
             else:
@@ -209,5 +209,5 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 
             elif result[0].emoji == "🚫":  # Delete:
                 await m.delete()
-                return None
+                return False
             await m.edit(embed=embeds[page])

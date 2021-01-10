@@ -52,7 +52,7 @@ class Bot(commands.Bot):
             'ext.reactions',  # needs to be loaded fist.
             'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
             'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.scores',
-            'ext.sidebar', 'ext.twitter', 'ext.transfer_lookup', "ext.transfer_ticker", 'ext.tv',
+            'ext.sidebar', 'ext.twitter', 'ext.lookups', "ext.transfers", 'ext.tv',
         ]
         for c in load:
             try:
